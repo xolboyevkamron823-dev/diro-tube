@@ -1,6 +1,67 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+static int local_port = 18080;
+
+void startLocalServer() {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (server_fd < 0) return;
+
+        int opt = 1;
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+        struct sockaddr_in address;
+        memset(&address, 0, sizeof(address));
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = inet_addr("127.0.0.1");
+        address.sin_port = htons(local_port);
+
+        if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            close(server_fd);
+            return;
+        }
+
+        if (listen(server_fd, 20) < 0) {
+            close(server_fd);
+            return;
+        }
+
+        NSLog(@"[DiroTube LocalServer] Listening on http://127.0.0.1:%d", local_port);
+
+        NSString *playerPath = [[NSBundle mainBundle] pathForResource:@"player" ofType:@"html"];
+        NSData *playerData = [NSData dataWithContentsOfFile:playerPath];
+        if (!playerData) {
+            NSString *defaultPlayer = @"<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'><meta name='referrer' content='strict-origin-when-cross-origin'><style>*{margin:0;padding:0;box-sizing:border-box;}html,body{width:100%;height:100%;background:#000;overflow:hidden;}iframe{width:100%;height:100%;border:none;display:block;}</style></head><body><iframe id='p' allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture' allowfullscreen playsinline webkit-playsinline referrerpolicy='strict-origin-when-cross-origin'></iframe><script>const p=new URLSearchParams(window.location.search);const v=p.get('v')||'YzQknv9Z9y8';const f=document.getElementById('p');f.src='https://www.youtube-nocookie.com/embed/'+v+'?autoplay=1&playsinline=1&enablejsapi=1&rel=0';window.addEventListener('message',e=>{if(e.data){if(f&&f.contentWindow&&e.source!==f.contentWindow){try{f.contentWindow.postMessage(e.data,'*');}catch(err){}}if(e.source===f.contentWindow&&window.parent&&window.parent!==window){try{window.parent.postMessage(e.data,'*');}catch(err){}}}});</script></body></html>";
+            playerData = [defaultPlayer dataUsingEncoding:NSUTF8StringEncoding];
+        }
+
+        while (1) {
+            int client_fd = accept(server_fd, NULL, NULL);
+            if (client_fd < 0) continue;
+
+            char buffer[2048] = {0};
+            read(client_fd, buffer, sizeof(buffer) - 1);
+
+            NSString *header = [NSString stringWithFormat:
+                @"HTTP/1.1 200 OK\r\n"
+                @"Content-Type: text/html; charset=utf-8\r\n"
+                @"Content-Length: %lu\r\n"
+                @"Access-Control-Allow-Origin: *\r\n"
+                @"Connection: close\r\n\r\n", (unsigned long)playerData.length];
+
+            NSData *headerData = [header dataUsingEncoding:NSUTF8StringEncoding];
+            write(client_fd, headerData.bytes, headerData.length);
+            write(client_fd, playerData.bytes, playerData.length);
+            close(client_fd);
+        }
+    });
+}
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate>
 @property (strong, nonatomic) UIWindow *window;
@@ -10,7 +71,10 @@
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    // 1. Enable Non-stop Background Audio Playback
+    // 1. Start Local HTTP Server for error-free YouTube player bridging (No 404, No Error 153)
+    startLocalServer();
+
+    // 2. Enable Non-stop Background Audio Playback
     @try {
         AVAudioSession *session = [AVAudioSession sharedInstance];
         [session setCategory:AVAudioSessionCategoryPlayback
@@ -22,14 +86,14 @@
         NSLog(@"AudioSession setup error: %@", e);
     }
 
-    // 2. Full-screen window
+    // 3. Full-screen window
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     self.window.backgroundColor = [UIColor blackColor];
 
     UIViewController *viewController = [[UIViewController alloc] init];
     viewController.view.backgroundColor = [UIColor blackColor];
 
-    // 3. Configure WKWebView for Inline Media, Background Playback, & Script Bridging
+    // 4. Configure WKWebView for Inline Media, Background Playback, & Script Bridging
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.allowsInlineMediaPlayback = YES;
     config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
@@ -61,7 +125,7 @@
     self.webView.customUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
     self.webView.navigationDelegate = self;
 
-    // 4. Load index.html from bundle
+    // 5. Load index.html from bundle
     NSString *indexPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"html"];
     if (indexPath) {
         NSURL *url = [NSURL fileURLWithPath:indexPath];

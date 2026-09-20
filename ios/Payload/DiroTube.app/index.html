@@ -1068,10 +1068,10 @@
       updateTimeDisplays(0, currentDuration);
       renderFeedList();
 
-      // Load YouTube embed via our secure HTTPS Proxy on GitHub Pages (eliminates Error 153)
+      // Load YouTube embed via local high-speed HTTP bridge (zero latency, zero 404, zero Error 153)
       const iframe = document.getElementById('yt-iframe');
       if (iframe) {
-        iframe.src = `https://xolboyevkamron823-dev.github.io/diro-tube/player.html?v=${t.id}`;
+        iframe.src = `http://127.0.0.1:18080/player.html?v=${t.id}`;
       }
 
       isPlaying = true;

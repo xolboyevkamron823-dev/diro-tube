@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Diro Tube Player Proxy</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100%; height:100%; background:#000; overflow:hidden; }
+    iframe { width:100%; height:100%; border:none; display:block; }
+  </style>
+</head>
+<body>
+  <iframe id="yt-player" 
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+          allowfullscreen 
+          playsinline 
+          webkit-playsinline 
+          referrerpolicy="strict-origin-when-cross-origin">
+  </iframe>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get('v') || 'YzQknv9Z9y8';
+    const iframe = document.getElementById('yt-player');
+    
+    // Set YouTube Embed URL with origin and full referer compliance
+    iframe.src = `https://www.youtube-nocookie.com/embed/${v}?autoplay=1&playsinline=1&enablejsapi=1&rel=0`;
+
+    // Forward messages between parent (Diro Tube iOS app) and YouTube iframe
+    window.addEventListener('message', function(event) {
+      if (event.data) {
+        // 1. From parent app -> to YouTube
+        if (iframe && iframe.contentWindow && event.source !== iframe.contentWindow) {
+          try {
+            iframe.contentWindow.postMessage(event.data, '*');
+          } catch(e) {}
+        }
+        // 2. From YouTube -> to parent app
+        if (event.source === iframe.contentWindow && window.parent && window.parent !== window) {
+          try {
+            window.parent.postMessage(event.data, '*');
+          } catch(e) {}
+        }
+      }
+    });
+
+    // Invidious fallback if YouTube fails
+    let fallbackTriggered = false;
+    window.addEventListener('error', function() {
+      if (!fallbackTriggered) {
+        fallbackTriggered = true;
+        iframe.src = `https://invidious.nerdvpn.de/embed/${v}?autoplay=1&playsinline=1`;
+      }
+    });
+  </script>
+</body>
+</html>

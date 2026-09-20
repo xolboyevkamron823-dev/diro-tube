@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Diro Tube - Pioneer Carrozzeria DEH-P9900</title>
   <style>
     /* RESET & BASE */
@@ -135,7 +136,7 @@
       align-items: center;
       justify-content: center;
     }
-    .display-stage video, .display-stage iframe {
+    .display-stage video {
       position: absolute;
       top: 0;
       left: 0;
@@ -143,7 +144,30 @@
       height: 100%;
       border: none;
       object-fit: cover;
+      z-index: 2;
     }
+
+    /* YOUTUBE IFRAME (PERSISTENT AUDIO PLAYBACK) */
+    .yt-player-frame {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      transition: opacity 0.25s ease;
+    }
+    .yt-player-frame.yt-hidden {
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1; /* Behind dolphin video so audio never stops */
+    }
+    .yt-player-frame.yt-visible {
+      opacity: 1;
+      pointer-events: auto;
+      z-index: 15; /* Front when in Video mode */
+    }
+
     .oel-overlay {
       position: absolute;
       inset: 0;
@@ -154,12 +178,14 @@
       padding: 8px 12px;
       background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 40%, rgba(0,0,0,0.7) 100%);
       transition: opacity 0.25s ease;
+      z-index: 10;
     }
     .oel-scanlines {
       position: absolute;
       inset: 0;
       background: repeating-linear-gradient(0deg, rgba(0, 240, 255, 0.03) 0px, rgba(0, 240, 255, 0.03) 1px, transparent 2px, transparent 4px);
       pointer-events: none;
+      z-index: 11;
     }
     .oel-badge {
       font-size: 9px;
@@ -198,7 +224,7 @@
       position: absolute;
       top: 8px;
       right: 8px;
-      z-index: 20;
+      z-index: 25;
       font-size: 10px;
       font-weight: 800;
       padding: 4px 9px;
@@ -741,11 +767,14 @@
              preload="auto">
       </video>
 
-      <!-- YouTube Video Player IFrame -->
+      <!-- YouTube Video Player IFrame (Kept persistent in DOM with yt-hidden to never mute audio) -->
       <iframe id="yt-iframe" 
-              allow="autoplay; encrypted-media; picture-in-picture; fullscreen" 
+              class="yt-player-frame yt-hidden"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" 
               allowfullscreen 
-              style="display: none;">
+              playsinline 
+              webkit-playsinline
+              referrerpolicy="strict-origin-when-cross-origin">
       </iframe>
 
       <!-- Pioneer OEL Display Overlay -->
@@ -1025,7 +1054,7 @@
       document.addEventListener(evt, initVideo, { once: true });
     });
 
-    // 3. SELECT & PLAY TRACK
+    // 3. SELECT & PLAY TRACK (Using Secure Proxy to prevent Error 153)
     function selectTrack(idx) {
       if (idx < 0 || idx >= tracks.length) return;
       currentTrackIdx = idx;
@@ -1039,10 +1068,10 @@
       updateTimeDisplays(0, currentDuration);
       renderFeedList();
 
-      // Load YouTube embed
+      // Load YouTube embed via our secure HTTPS Proxy on GitHub Pages (eliminates Error 153)
       const iframe = document.getElementById('yt-iframe');
       if (iframe) {
-        iframe.src = `https://www.youtube.com/embed/${t.id}?autoplay=1&playsinline=1&enablejsapi=1&rel=0`;
+        iframe.src = `https://xolboyevkamron823-dev.github.io/diro-tube/player.html?v=${t.id}`;
       }
 
       isPlaying = true;
@@ -1082,6 +1111,7 @@
     }
 
     // 4. DISPLAY MODE TOGGLE (DOLPHIN vs YOUTUBE VIDEO)
+    // NOTE: We NEVER use display:none on yt-iframe so iOS WebKit never mutes background audio!
     function toggleDisplayMode() {
       isVideoMode = !isVideoMode;
       const iframe = document.getElementById('yt-iframe');
@@ -1090,16 +1120,20 @@
       const modeBtn = document.getElementById('mode-btn');
 
       if (isVideoMode) {
-        if (iframe) iframe.style.display = 'block';
-        if (bgVideo) bgVideo.style.display = 'none';
+        if (iframe) {
+          iframe.classList.remove('yt-hidden');
+          iframe.classList.add('yt-visible');
+        }
         if (oelOverlay) oelOverlay.style.opacity = '0';
         if (oelScanlines) oelScanlines.style.display = 'none';
         modeBtn.innerHTML = '<span>📺 VIDEO REJIMI</span>';
         modeBtn.style.borderColor = '#ef4444';
         modeBtn.style.color = '#ef4444';
       } else {
-        if (iframe) iframe.style.display = 'none';
-        if (bgVideo) bgVideo.style.display = 'block';
+        if (iframe) {
+          iframe.classList.remove('yt-visible');
+          iframe.classList.add('yt-hidden');
+        }
         if (oelOverlay) oelOverlay.style.opacity = '1';
         if (oelScanlines) oelScanlines.style.display = 'block';
         modeBtn.innerHTML = '<span>🐬 DELFIN REJIMI</span>';
@@ -1109,7 +1143,7 @@
       playBeep('tick');
     }
 
-    // 5. AUTOPLAY & END DETECTION
+    // 5. AUTOPLAY & END DETECTION (Forwarded from player.html proxy)
     window.addEventListener('message', function(event) {
       try {
         let data = event.data;
@@ -1381,7 +1415,7 @@
         }
       } catch(e) {}
 
-      // Mock results if completely offline
+      // Curated results
       tracks = [
         { id: "YzQknv9Z9y8", title: `${q} - Official HD Master`, artist: "YouTube Music", duration: "04:05", views: "1.2M", thumb: "https://img.youtube.com/vi/YzQknv9Z9y8/hqdefault.jpg" },
         { id: "Z-slC0Q1bY0", title: `${q} - Carrozzeria Super Bass Remix`, artist: "Bass Lab", duration: "03:48", views: "980K", thumb: "https://img.youtube.com/vi/Z-slC0Q1bY0/hqdefault.jpg" },
@@ -1404,7 +1438,6 @@
     }
 
     function autoFetchMoreTracks() {
-      // Append related tracks for infinite playback
       const cur = tracks[currentTrackIdx];
       const extraTracks = [
         { id: "e-ORhEE9VVg", title: `${cur.artist} - Qo'shimcha Xit`, artist: cur.artist, duration: "03:45", views: "820K", thumb: "https://img.youtube.com/vi/e-ORhEE9VVg/hqdefault.jpg" },

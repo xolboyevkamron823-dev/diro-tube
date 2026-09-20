@@ -55,6 +55,9 @@ jobs:
           # 2. Copy Web App, Resources & Info.plist
           cp ios/Info.plist Payload/DiroTube.app/
           cp ios/Payload/DiroTube.app/index.html Payload/DiroTube.app/
+          if [ -f "player.html" ]; then
+            cp player.html Payload/DiroTube.app/
+          fi
           if [ -f "ios/Payload/DiroTube.app/1.mp4" ]; then
             cp ios/Payload/DiroTube.app/1.mp4 Payload/DiroTube.app/
           fi

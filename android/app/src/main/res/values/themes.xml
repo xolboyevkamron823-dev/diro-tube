@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.CarrozzeriaTube" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/carrozzeria_black</item>
+        <item name="android:navigationBarColor">@color/carrozzeria_black</item>
+        <item name="android:windowBackground">@color/carrozzeria_black</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

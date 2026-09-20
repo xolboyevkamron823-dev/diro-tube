@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diro Tube - Carrozzeria Edition</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@600;800;900&display=swap');
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #030508;
+      color: #e2e8f0;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .font-oel {
+      font-family: 'Share Tech Mono', monospace;
+    }
+    .font-carro {
+      font-family: 'Orbitron', sans-serif;
+    }
+    .scanlines {
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.40) 50%);
+      background-size: 100% 4px;
+    }
+    .dot-matrix {
+      background-image: radial-gradient(rgba(0, 229, 255, 0.15) 1px, transparent 1px);
+      background-size: 4px 4px;
+    }
+    .hex-bolt {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #7a8a9e 20%, #202834 80%, #0d1218 100%);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.4), 0 1px 2px rgba(0,0,0,0.8);
+      position: relative;
+    }
+    .hex-bolt::after {
+      content: '';
+      position: absolute;
+      inset: 1.5px;
+      background: #090c12;
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    }
+    .knurled-dial {
+      background: conic-gradient(from 0deg, #1b222c, #3f4b5a, #1b222c, #3f4b5a, #1b222c, #3f4b5a, #1b222c, #3f4b5a, #1b222c);
+      box-shadow: inset 0 2px 4px rgba(255,255,255,0.35), 0 6px 16px rgba(0,0,0,0.9), 0 0 10px rgba(0, 229, 255, 0.15);
+    }
+    .chassis-bevel {
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.6), 0 12px 35px rgba(0,0,0,0.95);
+    }
+    .oel-acrylic {
+      box-shadow: inset 0 3px 10px rgba(0,0,0,0.95), inset 0 0 25px rgba(0, 229, 255, 0.08), 0 1px 0 rgba(255,255,255,0.06);
+    }
+    .carro-btn-tactile {
+      transition: all 0.06s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .carro-btn-tactile:active {
+      transform: translateY(1.5px) scale(0.97);
+      filter: brightness(1.25);
+    }
+
+    /* THEME 1: CLASSIC OEL RETRO (Cyan / Blue Fluorescent) */
+    body.theme-classic .carro-border { border-color: rgba(0, 229, 255, 0.5) !important; }
+    body.theme-classic .carro-accent { color: #00e5ff !important; }
+    body.theme-classic .carro-bg-accent { background-color: #00e5ff !important; color: #000 !important; }
+    body.theme-classic .carro-glow { text-shadow: 0 0 10px #00e5ff, 0 0 20px rgba(0,229,255,0.6); }
+    body.theme-classic .carro-disp-bg { background: radial-gradient(ellipse at center, #04121e 0%, #01060b 100%) !important; }
+    body.theme-classic .carro-unit-bg { background: linear-gradient(180deg, #18202d 0%, #0e131c 50%, #080c12 100%) !important; border-color: #263345 !important; }
+
+    /* THEME 2: CYBER NAVI MODERN (Amber / Electric Blue / Crimson) */
+    body.theme-cyber .carro-border { border-color: rgba(255, 145, 0, 0.6) !important; }
+    body.theme-cyber .carro-accent { color: #ff9100 !important; }
+    body.theme-cyber .carro-bg-accent { background-color: #ff9100 !important; color: #000 !important; }
+    body.theme-cyber .carro-glow { text-shadow: 0 0 10px #ff9100, 0 0 20px rgba(255,145,0,0.6); }
+    body.theme-cyber .carro-disp-bg { background: radial-gradient(ellipse at center, #1a0f03 0%, #0a0601 100%) !important; }
+    body.theme-cyber .carro-unit-bg { background: linear-gradient(180deg, #201712 0%, #130e0b 50%, #0a0705 100%) !important; border-color: #422a16 !important; }
+
+    /* Custom Vertical Slider Styling for Carrozzeria Graphic EQ */
+    .eq-slider {
+      writing-mode: vertical-lr;
+      direction: rtl;
+      appearance: slider-vertical;
+      -webkit-appearance: slider-vertical;
+      width: 20px;
+      height: 80px;
+      cursor: pointer;
+      background: transparent;
+      accent-color: #00e5ff;
+    }
+    body.theme-cyber .eq-slider {
+      accent-color: #ff9100;
+    }
+    body.theme-cyber #progress-bar {
+      accent-color: #ff9100;
+    }
+  </style>
+</head>
+<body class="theme-classic h-screen w-screen flex flex-col justify-between overflow-hidden p-2.5">
+
+  <!-- Main Pioneer Carrozzeria Chassis -->
+  <div id="head-unit" class="carro-unit-bg w-full h-full flex flex-col justify-between border-2 rounded-xl p-3 chassis-bevel transition-all duration-300 relative">
+    
+    <!-- 4 Corner Hex Assembly Bolts -->
+    <div class="hex-bolt absolute top-2 left-2 pointer-events-none"></div>
+    <div class="hex-bolt absolute top-2 right-2 pointer-events-none"></div>
+    <div class="hex-bolt absolute bottom-2 left-2 pointer-events-none"></div>
+    <div class="hex-bolt absolute bottom-2 right-2 pointer-events-none"></div>
+
+    <!-- 1. TOP FASCIA & INSTANT THEME SWITCHER -->
+    <div class="flex items-center justify-between border-b border-slate-800/80 pb-2 px-1">
+      <!-- Left: Pioneer Logo & Flagship Model Badge -->
+      <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-black/60 border border-slate-700 shadow-inner">
+          <!-- Pioneer Emblem (Red Triangle / Gold Tuning) -->
+          <div class="w-3.5 h-3.5 flex items-center justify-center">
+            <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-red-500 drop-shadow-[0_0_4px_#ef4444]">
+              <polygon points="12,2 22,20 2,20" />
+            </svg>
+          </div>
+          <div>
+            <span class="text-[8px] tracking-[0.2em] text-slate-300 font-bold block uppercase leading-none">PIONEER carrozzeria</span>
+            <span class="text-[11px] font-carro font-black tracking-wider carro-accent carro-glow leading-none" id="brand-tag">DEH-P9900 REFERENCE DSP</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center: Status Badges -->
+      <div class="flex items-center gap-1.5 text-[10px] font-oel">
+        <span class="px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-500/50 text-amber-400 font-bold">SRC: YOUTUBE</span>
+        <span class="px-1.5 py-0.5 rounded bg-blue-950/60 border border-blue-500/40 text-blue-300 font-bold hidden sm:inline">96k/24-bit</span>
+        <span id="badge-beep" onclick="toggleBeep()" class="px-1.5 py-0.5 rounded bg-blue-950/80 border border-blue-400 text-blue-300 font-bold cursor-pointer hover:scale-105 active:scale-95 transition-transform" title="Pioneer Beep ovozini yoqish/o'chirish">🔊 BEEP: ON</span>
+        <span id="badge-eq" class="px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/50 text-cyan-300 font-bold">POWERFUL</span>
+        <span id="badge-live" class="px-1.5 py-0.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-400 font-bold animate-pulse">🔴 LIVE STAGE</span>
+        <span id="badge-status" class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">DSP ACTIVE</span>
+      </div>
+
+      <!-- Right: OEL MODE & THEME BUTTONS -->
+      <div class="flex items-center gap-1.5">
+        <button onclick="cycleOelMode()" id="oel-mode-btn" class="px-2.5 py-1 rounded bg-[#17212e] border carro-border text-xs font-oel font-bold carro-accent hover:scale-105 active:scale-95 transition-all shadow-md flex items-center gap-1.5 cursor-pointer carro-btn-tactile" title="OEL Ekran Rejimi (Video 1.mp4 / Dual / Spektr)">
+          <span id="oel-icon">🐬</span>
+          <span id="oel-text">OEL: VIDEO</span>
+        </button>
+        <button onclick="toggleTheme()" id="theme-btn" class="px-2.5 py-1 rounded bg-[#1c2432] border carro-border text-xs font-oel font-bold text-white hover:scale-105 active:scale-95 transition-all shadow-md flex items-center gap-1.5 cursor-pointer carro-btn-tactile">
+          <span id="theme-icon">🐬</span>
+          <span id="theme-text">TEMA: CLASSIC</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 2. MAIN DISPLAY (OEL VFD Spektr Analizatori & CARROZZERIA 1.MP4 VIDEO DISPLAY) -->
+    <div id="main-display" class="carro-disp-bg relative w-full flex-1 max-h-[175px] border carro-border rounded-lg p-2 my-1.5 scanlines oel-acrylic overflow-hidden transition-all duration-300 flex flex-col justify-between shadow-inner">
+      <div class="absolute inset-0 pointer-events-none opacity-20 dot-matrix"></div>
+
+      <!-- Visualizer & Video Motion Mode (Default) -->
+      <div id="vis-container" class="h-full flex flex-col justify-between relative z-10">
+        <!-- Display Header Bar -->
+        <div class="flex items-center justify-between border-b border-slate-800/80 pb-1">
+          <span class="text-[10px] carro-accent font-oel font-bold tracking-wider flex items-center gap-1.5" id="disp-source">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> YOUTUBE STEREO // 320 KBPS LIVE
+          </span>
+          <div class="flex items-center gap-2">
+            <span class="text-[9px] font-oel text-slate-400 font-bold hidden sm:inline">PIONEER ORGANIC EL DISPLAY</span>
+            <div id="anim-icon" class="flex items-center gap-1 carro-accent text-xs font-oel font-bold">
+              <span class="animate-pulse">🐬</span>
+              <span class="text-[9px] tracking-widest" id="oel-status-tag">CARROZZERIA 1.MP4 MOTION</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Central OEL Display: 1.mp4 authentic video looping muted + transparent VFD spectrum canvas -->
+        <div class="relative w-full flex-1 my-0.5 overflow-hidden rounded flex items-center justify-center bg-black/90 border border-cyan-500/20 shadow-inner">
+          <video id="oel-bg-video" 
+                 src="1.mp4" 
+                 autoplay 
+                 loop 
+                 muted 
+                 playsinline 
+                 data-no-hook="true" 
+                 class="w-full h-full object-cover pointer-events-none" 
+                 style="filter: brightness(1.05) contrast(1.1);"></video>
+          <canvas id="specCanvas" class="absolute inset-0 w-full h-full cursor-pointer rounded pointer-events-auto" onclick="togglePlay()" title="Musiqani to'xtatish / qo'yish (yoki ekranni bosish)"></canvas>
+        </div>
+
+        <!-- Track Info & High-Tech Level Bar -->
+        <div class="flex items-center justify-between text-xs font-oel pt-1 border-t border-slate-800/80">
+          <div class="truncate max-w-[440px] flex items-center gap-1.5">
+            <span class="text-[9px] px-1 py-0.2 rounded bg-cyan-950 border border-cyan-500/50 carro-accent font-bold">CD-TEXT</span>
+            <span id="track-title" class="text-white font-bold tracking-wide">Janob Rasul - 90-60 (Original Track)</span>
+            <span id="track-artist" class="text-slate-400 ml-1">// Janob Rasul</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0 ml-2">
+            <span class="text-[9px] text-emerald-400 font-bold hidden sm:inline">STEREO ◀▶</span>
+            <div id="track-timer" class="carro-accent font-bold">00:00 / 04:04</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mini Video Bezel (V-OUT Mode & Embedded Player) -->
+      <div id="video-container" class="h-full hidden flex flex-col relative z-10 bg-black rounded p-1 border border-slate-700">
+        <div class="flex items-center justify-between px-2 text-[9px] font-oel border-b border-slate-800 pb-0.5">
+          <span class="text-amber-400 font-bold flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> V-OUT // YOUTUBE VIDEO
+          </span>
+          <button onclick="toggleVideoMode()" class="text-red-400 hover:text-red-300 font-bold cursor-pointer carro-btn-tactile">✕ YOPISH</button>
+        </div>
+        <div id="video-embed-box" class="relative flex-1 rounded overflow-hidden mt-1 flex items-center justify-center bg-black">
+          <!-- Live YouTube Player IFrame -->
+          <iframe id="yt-iframe" class="w-full h-full border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. PROMINENT LIVE YOUTUBE SEARCH BAR -->
+    <div class="bg-[#141b26] border border-slate-700/90 rounded-lg p-1.5 flex items-center gap-2 mb-1 shadow-inner">
+      <span class="text-slate-400 text-sm pl-2">🔍</span>
+      <input type="text" id="search-input" onkeydown="if(event.key==='Enter') executeSearch()" placeholder="YouTube'dan istalgan musiqa, klip yoki qo'shiqchi nomini yozing..." class="flex-1 bg-transparent text-xs text-white font-oel placeholder-slate-400 outline-none">
+      <button onclick="executeSearch()" class="px-3.5 py-1 rounded carro-bg-accent text-xs font-oel font-bold hover:opacity-90 active:scale-95 transition-all cursor-pointer carro-btn-tactile">
+        QIDIRISH
+      </button>
+    </div>
+
+    <!-- YouTube Style Category Filter Pills -->
+    <div class="flex items-center gap-1.5 overflow-x-auto pb-1 mb-1.5 no-scrollbar text-xs font-oel" id="category-pills">
+      <button onclick="selectCategory('Hammasi')" class="cat-pill px-2.5 py-1 rounded-full bg-cyan-500 text-black font-bold whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm">Hammasi</button>
+      <button onclick="selectCategory('O\'zbekcha Estrada')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">O'zbekcha Estrada</button>
+      <button onclick="selectCategory('Musiqa')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">Musiqa</button>
+      <button onclick="selectCategory('Trending')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">Trending</button>
+      <button onclick="selectCategory('Premyera')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">Premyera</button>
+      <button onclick="selectCategory('Bass & Remix')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">Bass & Remix</button>
+      <button onclick="selectCategory('Jonli ijro')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">Jonli ijro</button>
+      <button onclick="selectCategory('Xitlar 2024')" class="cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95">Xitlar 2024</button>
+    </div>
+
+    <!-- Progress Scrubber & Live Time Tracking (Fully Synced with YouTube) -->
+    <div class="bg-[#121722] border border-slate-800 rounded-lg px-2.5 py-1 mb-1.5 shadow-sm">
+      <div class="flex items-center justify-between text-[11px] font-oel font-bold text-slate-300 mb-1">
+        <span id="time-current" class="carro-accent font-bold">00:00</span>
+        <div class="flex items-center gap-1.5">
+          <button onclick="skipSeconds(-10)" class="px-2 py-0.5 rounded bg-[#1b2333] hover:bg-[#253047] active:scale-95 text-slate-300 hover:text-cyan-400 border border-slate-700 text-[10px] cursor-pointer">⏪ -10s</button>
+          <span class="text-[9px] text-slate-500 font-normal">YOUTUBE TIME</span>
+          <button onclick="skipSeconds(10)" class="px-2 py-0.5 rounded bg-[#1b2333] hover:bg-[#253047] active:scale-95 text-slate-300 hover:text-cyan-400 border border-slate-700 text-[10px] cursor-pointer">+10s ⏩</button>
+        </div>
+        <span id="time-total" class="text-slate-400">04:04</span>
+      </div>
+      <div class="relative flex items-center">
+        <input type="range" id="progress-bar" min="0" max="1000" value="0" 
+               oninput="onScrubberInput(this.value)" 
+               onchange="onScrubberChange(this.value)" 
+               class="w-full h-2 bg-[#1b2333] accent-cyan-400 rounded-lg appearance-none cursor-pointer shadow-inner">
+      </div>
+    </div>
+
+    <!-- 4. CARROZZERIA PHYSICAL CONTROLS & ROTARY VOLUME DIAL -->
+    <div class="bg-[#171d28] border border-[#273244] rounded-lg p-2 flex items-center justify-between mb-1.5">
+      
+      <!-- Rotary Volume Dial -->
+      <div class="flex items-center gap-2">
+        <div id="rotary-knob" onclick="rotateKnob()" class="relative w-12 h-12 rounded-full knurled-dial border-2 border-slate-600 flex items-center justify-center cursor-pointer active:scale-95 transition-transform" title="Ovozni o'zgartirish">
+          <div class="w-8 h-8 rounded-full bg-[#10141b] border border-slate-700 flex items-center justify-center">
+            <div id="knob-dot" class="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#00e5ff] transform translate-x-2.5"></div>
+          </div>
+        </div>
+        <div class="flex flex-col font-oel">
+          <span class="text-[9px] text-slate-400 font-bold">OVOZ (VOL)</span>
+          <span id="vol-text" class="text-xs carro-accent font-bold">85%</span>
+        </div>
+      </div>
+
+      <!-- Playback Transport Buttons -->
+      <div class="flex items-center gap-2">
+        <button onclick="prevTrack()" class="w-9 h-9 rounded-full bg-[#10141a] border border-slate-700 hover:border-cyan-500 flex items-center justify-center text-slate-300 hover:text-cyan-400 transition-colors cursor-pointer">
+          ⏮
+        </button>
+        <button id="play-btn" onclick="togglePlay()" class="w-12 h-12 rounded-full bg-[#121924] border-2 carro-border text-white text-lg font-bold flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer">
+          ▶
+        </button>
+        <button onclick="nextTrack()" class="w-9 h-9 rounded-full bg-[#10141a] border border-slate-700 hover:border-cyan-500 flex items-center justify-center text-slate-300 hover:text-cyan-400 transition-colors cursor-pointer">
+          ⏭
+        </button>
+      </div>
+
+      <!-- Sound Enhancer Switches -->
+      <div class="flex flex-col gap-1 text-[10px] font-oel">
+        <button onclick="toggleAsr()" id="btn-asr" class="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-400 text-cyan-300 font-bold shadow-[0_0_8px_#00e5ff] cursor-pointer">A.S.R: ON</button>
+        <button onclick="toggleLoudness()" id="btn-loud" class="px-2 py-0.5 rounded bg-amber-950 border border-amber-400 text-amber-300 font-bold shadow-[0_0_8px_#ff9100] cursor-pointer">LOUD: ON</button>
+      </div>
+    </div>
+
+    <!-- 5. TABS: TREND & SEARCH RESULTS, EQ/DSP, V-OUT -->
+    <div class="grid grid-cols-3 gap-2 text-center font-oel text-xs mb-1">
+      <button onclick="switchTab('trend')" id="tab-btn-trend" class="py-1.5 rounded bg-cyan-950/80 border border-cyan-500 text-cyan-300 font-bold cursor-pointer">
+        🔥 YOUTUBE NATIJALARI (<span id="results-count">16</span>)
+      </button>
+      <button onclick="switchTab('eq')" id="tab-btn-eq" class="py-1.5 rounded bg-[#141a24] border border-slate-700 text-slate-300 font-bold hover:border-cyan-500 cursor-pointer">
+        🎚 CARROZZERIA EQ & LIVE
+      </button>
+      <button onclick="toggleVideoMode()" id="tab-btn-vout" class="py-1.5 rounded bg-[#141a24] border border-slate-700 text-slate-300 font-bold hover:border-amber-500 cursor-pointer">
+        📺 V-OUT VIDEO
+      </button>
+    </div>
+
+    <!-- TAB CONTENT CONTAINER -->
+    <div class="flex-1 bg-[#0c1017] border border-slate-800 rounded-lg p-2 overflow-hidden">
+      
+      <!-- TAB 1: YOUTUBE TRACK LIST -->
+      <div id="tab-trend" class="h-full flex flex-col">
+        <div class="flex items-center justify-between text-[10px] font-oel text-slate-400 mb-1.5 px-1">
+          <div class="flex items-center gap-1.5 truncate">
+            <span id="results-title" class="font-bold text-slate-200">🔥 YOUTUBE TRENDDAGI ENG SARA MUSIQALAR:</span>
+          </div>
+          <button onclick="toggleAutoplay()" id="autoplay-btn" class="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-400 text-cyan-300 font-bold hover:scale-105 active:scale-95 transition-transform flex items-center gap-1 cursor-pointer">
+            <span>▶ AVTO-IJRO: ON</span>
+          </button>
+        </div>
+        <div id="track-list" class="flex-1 overflow-y-auto space-y-1.5 pr-1"></div>
+      </div>
+
+      <!-- TAB 2: EQUALIZER & LIVE MODES (REAL-TIME WORKING DSP) -->
+      <div id="tab-eq" class="h-full hidden flex flex-col overflow-y-auto pr-1">
+        
+        <!-- Live Sound Field Stage (SFC) -->
+        <div class="mb-2 bg-[#121722] p-2 rounded-lg border border-slate-800">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-oel font-bold text-amber-400">JONLI REJIMLAR (LIVE STAGE // REAL-TIME DSP):</span>
+            <span id="live-indicator" class="text-[10px] text-emerald-400 font-oel font-bold animate-pulse">● LIVE STAGE FAOL</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5">
+            <button onclick="setLiveMode('LIVE_STAGE')" id="btn-live-stage" class="py-1 text-[11px] rounded bg-emerald-500 text-black font-bold font-oel shadow-[0_0_8px_#10b981] cursor-pointer">🔴 LIVE STAGE</button>
+            <button onclick="setLiveMode('CLUB')" id="btn-live-club" class="py-1 text-[11px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">CLUB SOUND</button>
+            <button onclick="setLiveMode('HALL')" id="btn-live-hall" class="py-1 text-[11px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">CONCERT HALL</button>
+            <button onclick="setLiveMode('STUDIO')" id="btn-live-studio" class="py-1 text-[11px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">STUDIO DIRECT</button>
+          </div>
+        </div>
+
+        <!-- Presets -->
+        <div class="mb-2 bg-[#121722] p-2 rounded-lg border border-slate-800">
+          <span class="text-[11px] font-oel font-bold text-slate-400 block mb-1.5">CHASTOTA PRESETLARI (EQ CURVES):</span>
+          <div class="grid grid-cols-7 gap-1">
+            <button onclick="setEqPreset('POWERFUL')" id="btn-preset-powerful" class="py-1 text-[10px] rounded bg-cyan-500 text-black font-bold font-oel shadow-[0_0_8px_#00e5ff] cursor-pointer">POWERFUL</button>
+            <button onclick="setEqPreset('NATURAL')" id="btn-preset-natural" class="py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">NATURAL</button>
+            <button onclick="setEqPreset('VOCAL')" id="btn-preset-vocal" class="py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">VOCAL</button>
+            <button onclick="setEqPreset('FLAT')" id="btn-preset-flat" class="py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">FLAT</button>
+            <button onclick="setEqPreset('SUPER BASS')" id="btn-preset-super-bass" class="py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">SUPER BASS</button>
+            <button onclick="setEqPreset('CUSTOM 1')" id="btn-preset-custom-1" class="py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">CUSTOM 1</button>
+            <button onclick="setEqPreset('CUSTOM 2')" id="btn-preset-custom-2" class="py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer">CUSTOM 2</button>
+          </div>
+          <div class="flex items-center gap-2 mt-1.5">
+            <button onclick="saveCustomPreset(1)" class="flex-1 py-1 rounded bg-[#172333] border border-cyan-500/60 text-cyan-300 font-oel text-[10px] font-bold hover:bg-cyan-500 hover:text-black transition-all cursor-pointer">
+              💾 SAVE TO CUSTOM 1
+            </button>
+            <button onclick="saveCustomPreset(2)" class="flex-1 py-1 rounded bg-[#172333] border border-cyan-500/60 text-cyan-300 font-oel text-[10px] font-bold hover:bg-cyan-500 hover:text-black transition-all cursor-pointer">
+              💾 SAVE TO CUSTOM 2
+            </button>
+          </div>
+        </div>
+
+        <!-- 7-Band Graphic Equalizer Sliders -->
+        <div class="bg-[#121722] p-2 rounded-lg border border-slate-800 flex-1 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-1 text-[10px] font-oel text-slate-400">
+            <span>7-BAND PARAMETRIC GRAPHIC EQUALIZER (-12dB ... +12dB)</span>
+            <span class="text-cyan-400 font-bold">REAL-TIME HARDWARE DSP</span>
+          </div>
+          <div class="grid grid-cols-7 gap-1 text-center font-oel flex-1 items-center">
+            <!-- 50Hz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">50Hz</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-0" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="10" oninput="onEqSliderChange(0, this.value)">
+              </div>
+              <span id="eq-val-0" class="text-[10px] text-cyan-300 font-bold">+10dB</span>
+            </div>
+            <!-- 125Hz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">125Hz</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-1" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="6" oninput="onEqSliderChange(1, this.value)">
+              </div>
+              <span id="eq-val-1" class="text-[10px] text-cyan-300 font-bold">+6dB</span>
+            </div>
+            <!-- 315Hz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">315Hz</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-2" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="0" oninput="onEqSliderChange(2, this.value)">
+              </div>
+              <span id="eq-val-2" class="text-[10px] text-cyan-300 font-bold">0dB</span>
+            </div>
+            <!-- 800Hz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">800Hz</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-3" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="2" oninput="onEqSliderChange(3, this.value)">
+              </div>
+              <span id="eq-val-3" class="text-[10px] text-cyan-300 font-bold">+2dB</span>
+            </div>
+            <!-- 2kHz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">2kHz</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-4" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="5" oninput="onEqSliderChange(4, this.value)">
+              </div>
+              <span id="eq-val-4" class="text-[10px] text-cyan-300 font-bold">+5dB</span>
+            </div>
+            <!-- 5kHz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">5kHz</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-5" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="8" oninput="onEqSliderChange(5, this.value)">
+              </div>
+              <span id="eq-val-5" class="text-[10px] text-cyan-300 font-bold">+8dB</span>
+            </div>
+            <!-- 12.5kHz -->
+            <div class="flex flex-col items-center bg-[#0d121a] py-1 px-0.5 rounded border border-slate-800 h-full justify-between">
+              <span class="text-[10px] text-cyan-400 font-bold">12.5k</span>
+              <div class="flex-1 flex items-center justify-center my-1">
+                <input type="range" id="eq-slider-6" orient="vertical" class="eq-slider" min="-12" max="12" step="1" value="10" oninput="onEqSliderChange(6, this.value)">
+              </div>
+              <span id="eq-val-6" class="text-[10px] text-cyan-300 font-bold">+10dB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let isPlaying = false;
+    let currentTheme = 'classic';
+    let showVideo = false;
+    let volumeLevel = 85;
+    let asrActive = true;
+    let loudActive = true;
+    let currentTrackIdx = 0;
+    let currentDuration = 244; // seconds (default for 04:04)
+    let currentPlaybackTime = 0;
+    let isScrubbing = false;
+    let autoplayEnabled = true;
+    let shouldPlayOnSearch = false;
+    let isFetchingMore = false;
+
+    // Equalizer Presets
+    const EQ_PRESETS = {
+      'POWERFUL':   { gains: [10, 6, 0, 2, 5, 8, 10], bassBoost: 10 },
+      'NATURAL':    { gains: [3, 1, 0, 0, 1, 2, 3], bassBoost: 2 },
+      'VOCAL':      { gains: [-2, 0, 3, 6, 6, 3, 1], bassBoost: 0 },
+      'FLAT':       { gains: [0, 0, 0, 0, 0, 0, 0], bassBoost: 0 },
+      'SUPER BASS': { gains: [12, 8, 2, 0, 0, 2, 4], bassBoost: 14 },
+      'CUSTOM 1':   { gains: [10, 6, 2, 0, 4, 7, 9], bassBoost: 10 },
+      'CUSTOM 2':   { gains: [-2, 1, 4, 7, 5, 4, 2], bassBoost: 2 }
+    };
+    let currentPresetName = 'POWERFUL';
+    let currentLiveMode = 'LIVE_STAGE';
+
+    // Rich default curated playlist (16 verified real YouTube hits)
+    let tracks = [
+      { id: "YzQknv9Z9y8", title: "Janob Rasul - 90-60 (Original Track)", artist: "Janob Rasul", duration: "04:04", views: "93M", thumb: "https://img.youtube.com/vi/YzQknv9Z9y8/hqdefault.jpg" },
+      { id: "Z-slC0Q1bY0", title: "Janob Rasul - Sop-sori (Captiva)", artist: "Janob Rasul", duration: "03:52", views: "53M", thumb: "https://img.youtube.com/vi/Z-slC0Q1bY0/hqdefault.jpg" },
+      { id: "NeREUXXf62E", title: "Janob Rasul - Tamara (Klip)", artist: "Janob Rasul", duration: "03:41", views: "18M", thumb: "https://img.youtube.com/vi/NeREUXXf62E/hqdefault.jpg" },
+      { id: "CfaOB69m39g", title: "Janob Rasul - Yomonsan (Hit)", artist: "Janob Rasul", duration: "03:38", views: "10M", thumb: "https://img.youtube.com/vi/CfaOB69m39g/hqdefault.jpg" },
+      { id: "EXpB6jVPnMQ", title: "Janob Rasul - Qora bulut", artist: "Janob Rasul", duration: "04:15", views: "9.9M", thumb: "https://img.youtube.com/vi/EXpB6jVPnMQ/hqdefault.jpg" },
+      { id: "-GfOYRzqTAM", title: "Janob Rasul - Nigina", artist: "Janob Rasul", duration: "03:30", views: "3.8M", thumb: "https://img.youtube.com/vi/-GfOYRzqTAM/hqdefault.jpg" },
+      { id: "6Ax4ISLWxxE", title: "Janob Rasul & Azizbek Hamidov - Onam", artist: "Janob Rasul", duration: "04:10", views: "20K", thumb: "https://img.youtube.com/vi/6Ax4ISLWxxE/hqdefault.jpg" },
+      { id: "kJQP7kiw5Fk", title: "Luis Fonsi - Despacito ft. Daddy Yankee", artist: "Luis Fonsi", duration: "04:42", views: "8.3B", thumb: "https://img.youtube.com/vi/kJQP7kiw5Fk/hqdefault.jpg" },
+      { id: "JGwWNGJdvx8", title: "Ed Sheeran - Shape of You", artist: "Ed Sheeran", duration: "04:23", views: "6.1B", thumb: "https://img.youtube.com/vi/JGwWNGJdvx8/hqdefault.jpg" },
+      { id: "OPf0YbXqDm0", title: "Mark Ronson - Uptown Funk ft. Bruno Mars", artist: "Mark Ronson", duration: "04:30", views: "5.0B", thumb: "https://img.youtube.com/vi/OPf0YbXqDm0/hqdefault.jpg" },
+      { id: "fJ9rUzIMcZQ", title: "Queen - Bohemian Rhapsody (Live)", artist: "Queen", duration: "06:00", views: "1.7B", thumb: "https://img.youtube.com/vi/fJ9rUzIMcZQ/hqdefault.jpg" },
+      { id: "2Vv-BfVoq4g", title: "Ed Sheeran - Perfect (Music Video)", artist: "Ed Sheeran", duration: "04:39", views: "3.5B", thumb: "https://img.youtube.com/vi/2Vv-BfVoq4g/hqdefault.jpg" },
+      { id: "RgKAFK5djSk", title: "Wiz Khalifa - See You Again ft. Charlie Puth", artist: "Wiz Khalifa", duration: "03:57", views: "6.0B", thumb: "https://img.youtube.com/vi/RgKAFK5djSk/hqdefault.jpg" },
+      { id: "hT_nvWreIhg", title: "OneRepublic - Counting Stars", artist: "OneRepublic", duration: "04:17", views: "4.0B", thumb: "https://img.youtube.com/vi/hT_nvWreIhg/hqdefault.jpg" },
+      { id: "kXYiU_JCYtU", title: "Linkin Park - Numb (Official Music)", artist: "Linkin Park", duration: "03:07", views: "2.3B", thumb: "https://img.youtube.com/vi/kXYiU_JCYtU/hqdefault.jpg" },
+      { id: "YQHsXMglC9A", title: "Adele - Hello (Official Music)", artist: "Adele", duration: "06:06", views: "3.1B", thumb: "https://img.youtube.com/vi/YQHsXMglC9A/hqdefault.jpg" }
+    ];
+
+    // Helper to format seconds -> MM:SS
+    function formatTime(sec) {
+      if (isNaN(sec) || sec < 0) return "00:00";
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    // Helper to parse "MM:SS" -> seconds
+    function parseDuration(str) {
+      if (!str) return 225;
+      const parts = str.split(':');
+      if (parts.length === 2) return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+      return 225;
+    }
+
+    function updateTimeDisplays(cur, total) {
+      const curStr = formatTime(cur);
+      const totStr = formatTime(total);
+      const curEl = document.getElementById('time-current');
+      const totEl = document.getElementById('time-total');
+      const topTimer = document.getElementById('track-timer');
+      if (curEl) curEl.innerText = curStr;
+      if (totEl) totEl.innerText = totStr;
+      if (topTimer) topTimer.innerText = `${curStr} / ${totStr}`;
+    }
+
+    // Dispatch DSP commands to YouTube iframe & C#
+    function postDspMessage(data) {
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try { iframe.contentWindow.postMessage(data, '*'); } catch(e) {}
+        try { iframe.contentWindow.postMessage(JSON.stringify(data), '*'); } catch(e) {}
+      }
+      if (window.chrome && window.chrome.webview) {
+        try { window.chrome.webview.postMessage(data); } catch(e) {}
+      }
+    }
+
+    // Resend all current DSP settings when a new video is loaded
+    function resendCurrentDspSettings() {
+      const gains = [];
+      for (let i = 0; i < 7; i++) {
+        const el = document.getElementById(`eq-slider-${i}`);
+        gains.push(el ? parseFloat(el.value) : 0);
+      }
+      postDspMessage({
+        action: 'SET_EQ_PRESET',
+        presetName: currentPresetName,
+        gains: gains,
+        bassBoost: currentPresetName === 'SUPER BASS' ? 14 : (currentPresetName === 'POWERFUL' ? 10 : 4)
+      });
+      postDspMessage({ action: 'SET_ASR', enabled: asrActive });
+      postDspMessage({ action: 'SET_LOUD', enabled: loudActive });
+      postDspMessage({ action: 'SET_LIVE_STAGE', mode: currentLiveMode });
+      postDspMessage({ action: 'SET_VOLUME', volume: volumeLevel });
+    }
+
+    // Synchronize Real YouTube Time & Events
+    window.addEventListener('message', (event) => {
+      // CRITICAL: Discard any messages sent from top window to itself
+      if (event.source === window) return;
+
+      let data = event.data;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch(e) {}
+      }
+      if (!data || typeof data !== 'object') return;
+
+      // Forward IFRAME_LOG from child frame to C# host and update UI status badge
+      if (data.action === 'IFRAME_LOG') {
+        if (window.chrome && window.chrome.webview) {
+          try { window.chrome.webview.postMessage(data); } catch(e) {}
+        }
+        const badge = document.getElementById('badge-status');
+        if (badge && data.text) {
+          if (data.text.includes('SUCCESS!') || data.text.includes('DSP_ACTIVE: LOCKED')) {
+            badge.innerText = 'DSP ACTIVE: LOCKED';
+            badge.className = 'px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500 text-emerald-300 font-bold animate-pulse';
+          } else if (data.text.includes('HOOK_AUDIO_ERROR')) {
+            badge.innerText = 'DSP WARN';
+            badge.className = 'px-1.5 py-0.5 rounded bg-amber-950/80 border border-amber-500 text-amber-300 font-bold';
+          }
+        }
+      }
+
+      // 1. From our injected C# WebView2 script in YouTube player iframe
+      if (data.action === 'YT_TIME_UPDATE') {
+        if (typeof data.duration === 'number' && data.duration > 20) {
+          currentDuration = data.duration;
+        }
+        if (typeof data.currentTime === 'number' && !isNaN(data.currentTime)) {
+          if (!isScrubbing && currentDuration > 0) {
+            currentPlaybackTime = data.currentTime;
+            const frac = Math.max(0, Math.min(1, currentPlaybackTime / currentDuration));
+            const bar = document.getElementById('progress-bar');
+            if (bar) bar.value = Math.round(frac * 1000);
+            updateTimeDisplays(currentPlaybackTime, currentDuration);
+          }
+        }
+        if (data.paused !== undefined) {
+          isPlaying = !data.paused;
+          document.getElementById('play-btn').innerText = isPlaying ? "⏸" : "▶";
+        }
+      }
+
+      // 2. Track auto-ended
+      if (data.action === 'YT_ENDED') {
+        nextTrack();
+      }
+
+      // 3. YouTube standard IFrame API info delivery
+      if (data.event === 'infoDelivery' && data.info) {
+        if (typeof data.info.duration === 'number' && data.info.duration > 20) {
+          currentDuration = data.info.duration;
+        }
+        if (typeof data.info.currentTime === 'number' && !isNaN(data.info.currentTime)) {
+          if (!isScrubbing && currentDuration > 0) {
+            currentPlaybackTime = data.info.currentTime;
+            const frac = Math.max(0, Math.min(1, currentPlaybackTime / currentDuration));
+            const bar = document.getElementById('progress-bar');
+            if (bar) bar.value = Math.round(frac * 1000);
+            updateTimeDisplays(currentPlaybackTime, currentDuration);
+          }
+        }
+        if (typeof data.info.playerState === 'number') {
+          if (data.info.playerState === 1) { // playing
+            isPlaying = true;
+            document.getElementById('play-btn').innerText = "⏸";
+          } else if (data.info.playerState === 2) { // paused
+            isPlaying = false;
+            document.getElementById('play-btn').innerText = "▶";
+          } else if (data.info.playerState === 0) { // ended
+            nextTrack();
+          }
+        }
+      }
+
+      // Automatic fallback if video is restricted on youtube-nocookie
+      if (data.event === 'onError' || (data.info && typeof data.info === 'number' && data.info > 1)) {
+        console.warn('[Diro Tube] YouTube embed error detected, trying standard embed fallback...');
+        const iframe = document.getElementById('yt-iframe');
+        const t = tracks[currentTrackIdx];
+        if (iframe && t && iframe.src.includes('youtube-nocookie.com')) {
+          const origin = encodeURIComponent(window.location.origin);
+          iframe.src = `https://www.youtube.com/embed/${t.id}?autoplay=1&enablejsapi=1&origin=${origin}&playsinline=1`;
+        }
+      }
+    });
+
+    // Listen for C# backend search messages
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.addEventListener('message', event => {
+        try {
+          const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (data && data.action === 'searchResults' && data.tracks && data.tracks.length > 0) {
+            if (isFetchingMore) {
+              const existingIds = new Set(tracks.map(t => t.id));
+              const newTracks = data.tracks.filter(t => !existingIds.has(t.id));
+              tracks = tracks.concat(newTracks);
+              isFetchingMore = false;
+            } else {
+              tracks = data.tracks;
+              if (shouldPlayOnSearch) {
+                selectTrack(0);
+                shouldPlayOnSearch = false;
+              }
+            }
+            document.getElementById('results-count').innerText = tracks.length;
+            renderTrackList();
+          }
+        } catch (e) {
+          console.error("Error processing C# message", e);
+        }
+      });
+    }
+
+    // 1. Play & Track Selection (Reliable playback with matching origin)
+    let hasLoadedInitialIframe = false;
+
+    function selectTrack(idx) {
+      currentTrackIdx = idx;
+      const t = tracks[currentTrackIdx];
+      document.getElementById('track-title').innerText = t.title;
+      document.getElementById('track-artist').innerText = `// ${t.artist}`;
+      currentDuration = parseDuration(t.duration);
+      currentPlaybackTime = 0;
+      updateTimeDisplays(0, currentDuration);
+
+      const iframe = document.getElementById('yt-iframe');
+      const origin = encodeURIComponent(window.location.origin);
+
+      if (!hasLoadedInitialIframe || !iframe.src || iframe.src === 'about:blank') {
+        hasLoadedInitialIframe = true;
+        iframe.src = `https://www.youtube-nocookie.com/embed/${t.id}?autoplay=1&enablejsapi=1&origin=${origin}&playsinline=1`;
+      } else {
+        // Seamlessly switch track inside existing iframe without destroying AudioContext & DSP
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({
+            event: 'command',
+            func: 'loadVideoById',
+            args: [t.id, 0]
+          }), '*');
+          iframe.contentWindow.postMessage(JSON.stringify({
+            event: 'command',
+            func: 'playVideo',
+            args: []
+          }), '*');
+        } catch (e) {
+          console.warn('postMessage loadVideo error, fallback to src:', e);
+          iframe.src = `https://www.youtube-nocookie.com/embed/${t.id}?autoplay=1&enablejsapi=1&origin=${origin}&playsinline=1`;
+        }
+      }
+
+      isPlaying = true;
+      document.getElementById('play-btn').innerText = "⏸";
+      document.getElementById('disp-source').innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> YOUTUBE LIVE: ${t.artist.toUpperCase()}`;
+
+      renderTrackList();
+
+      // Automatically re-apply all Carrozzeria DSP & EQ parameters to the new stream
+      setTimeout(resendCurrentDspSettings, 250);
+      setTimeout(resendCurrentDspSettings, 700);
+      setTimeout(resendCurrentDspSettings, 1600);
+    }
+
+    function togglePlay() {
+      const iframe = document.getElementById('yt-iframe');
+      if (!iframe.src || iframe.src === 'about:blank') {
+        selectTrack(0);
+        return;
+      }
+
+      isPlaying = !isPlaying;
+      document.getElementById('play-btn').innerText = isPlaying ? "⏸" : "▶";
+
+      if (isPlaying) {
+        iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+        resendCurrentDspSettings();
+      } else {
+        iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+      }
+    }
+
+    function toggleAutoplay() {
+      autoplayEnabled = !autoplayEnabled;
+      const btn = document.getElementById('autoplay-btn');
+      if (btn) {
+        if (autoplayEnabled) {
+          btn.className = "px-2 py-0.5 rounded bg-cyan-950 border border-cyan-400 text-cyan-300 font-bold hover:scale-105 active:scale-95 transition-transform flex items-center gap-1 cursor-pointer";
+          btn.innerHTML = "<span>▶ AVTO-IJRO: ON</span>";
+        } else {
+          btn.className = "px-2 py-0.5 rounded bg-[#10141b] border border-slate-700 text-slate-500 font-bold hover:scale-105 active:scale-95 transition-transform flex items-center gap-1 cursor-pointer";
+          btn.innerHTML = "<span>⏸ AVTO-IJRO: OFF</span>";
+        }
+      }
+      playCarrozzeriaBeep('click');
+    }
+
+    function nextTrack() {
+      if (!autoplayEnabled) {
+        isPlaying = false;
+        document.getElementById('play-btn').innerText = "▶";
+        return;
+      }
+      currentTrackIdx = (currentTrackIdx + 1) % tracks.length;
+      selectTrack(currentTrackIdx);
+
+      // Continuous infinite autoplay: fetch more tracks when reaching playlist end
+      if (currentTrackIdx >= tracks.length - 2) {
+        autoFetchMoreRelatedTracks();
+      }
+    }
+
+    function prevTrack() {
+      currentTrackIdx = (currentTrackIdx - 1 + tracks.length) % tracks.length;
+      selectTrack(currentTrackIdx);
+    }
+
+    function autoFetchMoreRelatedTracks() {
+      if (isFetchingMore) return;
+      isFetchingMore = true;
+      try {
+        const cur = tracks[currentTrackIdx];
+        const nextQuery = cur ? `${cur.artist} xitlar` : 'O\'zbekcha xitlar 2024';
+        shouldPlayOnSearch = false; // Don't interrupt playing track!
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage({ action: 'search', query: nextQuery });
+        }
+      } catch(e) {}
+      setTimeout(() => { isFetchingMore = false; }, 6000);
+    }
+
+    // Precise Scrubber Seeking
+    function onScrubberInput(val) {
+      isScrubbing = true;
+      const frac = parseFloat(val) / 1000;
+      const scrubSeconds = frac * currentDuration;
+      updateTimeDisplays(scrubSeconds, currentDuration);
+    }
+
+    function onScrubberChange(val) {
+      const frac = parseFloat(val) / 1000;
+      const targetSeconds = Math.max(0, Math.min(currentDuration, frac * currentDuration));
+      currentPlaybackTime = targetSeconds;
+
+      // 1. Direct seek to <video> element
+      postDspMessage({ action: 'SEEK', seconds: targetSeconds });
+
+      // 2. Standard YouTube IFrame API command
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: 'seekTo',
+          args: [targetSeconds, true]
+        }), '*');
+      }
+
+      updateTimeDisplays(targetSeconds, currentDuration);
+      setTimeout(() => { isScrubbing = false; }, 300);
+    }
+
+    function skipSeconds(delta) {
+      const target = Math.max(0, Math.min(currentDuration, currentPlaybackTime + delta));
+      currentPlaybackTime = target;
+      const bar = document.getElementById('progress-bar');
+      if (bar && currentDuration > 0) {
+        bar.value = (target / currentDuration) * 1000;
+      }
+      onScrubberChange(bar ? bar.value : 0);
+    }
+
+    function rotateKnob() {
+      volumeLevel = (volumeLevel + 10) > 100 ? 20 : volumeLevel + 10;
+      document.getElementById('vol-text').innerText = `${volumeLevel}%`;
+      const angle = ((volumeLevel / 100) * 270) - 135;
+      document.getElementById('knob-dot').style.transform = `rotate(${angle}deg) translate(14px)`;
+
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(`{"event":"command","func":"setVolume","args":[${volumeLevel}]}`, '*');
+      }
+      postDspMessage({ action: 'SET_VOLUME', volume: volumeLevel });
+    }
+
+    // 2. EQUALIZER & LIVE DSP ENGINE
+    function onEqSliderChange(idx, val) {
+      const g = parseInt(val);
+      const label = document.getElementById(`eq-val-${idx}`);
+      if (label) {
+        label.innerText = (g > 0 ? '+' : '') + g + 'dB';
+        label.className = `text-[10px] font-bold ${g > 0 ? 'text-cyan-300' : (g < 0 ? 'text-red-400' : 'text-slate-300')}`;
+      }
+
+      // Mark preset as CUSTOM
+      document.getElementById('badge-eq').innerText = 'CUSTOM';
+      currentPresetName = 'CUSTOM';
+      ['POWERFUL', 'NATURAL', 'VOCAL', 'FLAT', 'SUPER BASS', 'CUSTOM 1', 'CUSTOM 2'].forEach(p => {
+        const id = 'btn-preset-' + p.toLowerCase().replace(' ', '-');
+        const btn = document.getElementById(id);
+        if (btn) {
+          btn.className = "py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer";
+        }
+      });
+
+      postDspMessage({
+        action: 'SET_EQ_BAND',
+        index: parseInt(idx),
+        gain: g
+      });
+    }
+
+    function loadCustomPresets() {
+      try {
+        const c1 = localStorage.getItem('carro_custom_1');
+        if (c1) EQ_PRESETS['CUSTOM 1'] = { gains: JSON.parse(c1), bassBoost: 8 };
+        const c2 = localStorage.getItem('carro_custom_2');
+        if (c2) EQ_PRESETS['CUSTOM 2'] = { gains: JSON.parse(c2), bassBoost: 4 };
+      } catch(e) {}
+    }
+
+    function saveCustomPreset(slot) {
+      const gains = [];
+      for (let i = 0; i < 7; i++) {
+        const el = document.getElementById(`eq-slider-${i}`);
+        gains.push(el ? parseInt(el.value) : 0);
+      }
+      const key = `CUSTOM ${slot}`;
+      EQ_PRESETS[key] = { gains: gains, bassBoost: 8 };
+      try {
+        localStorage.setItem(`carro_custom_${slot}`, JSON.stringify(gains));
+      } catch(e) {}
+
+      setEqPreset(key);
+      playCarrozzeriaBeep('mode');
+
+      const btns = document.querySelectorAll(`button[onclick="saveCustomPreset(${slot})"]`);
+      btns.forEach(btn => {
+        const originalText = btn.innerText;
+        btn.innerText = `✅ CUSTOM ${slot} SAQLANDI!`;
+        btn.classList.add('bg-emerald-500', 'text-black');
+        setTimeout(() => {
+          btn.innerText = originalText;
+          btn.classList.remove('bg-emerald-500', 'text-black');
+        }, 1500);
+      });
+    }
+
+    function setEqPreset(name) {
+      currentPresetName = name;
+      const preset = EQ_PRESETS[name];
+      if (!preset) return;
+
+      // Update all 7 sliders & dB labels
+      for (let i = 0; i < 7; i++) {
+        const slider = document.getElementById(`eq-slider-${i}`);
+        const label = document.getElementById(`eq-val-${i}`);
+        const g = preset.gains[i];
+        if (slider) slider.value = g;
+        if (label) {
+          label.innerText = (g > 0 ? '+' : '') + g + 'dB';
+          label.className = `text-[10px] font-bold ${g > 0 ? 'text-cyan-300' : (g < 0 ? 'text-red-400' : 'text-slate-300')}`;
+        }
+      }
+
+      // Update preset buttons
+      const presetIds = ['POWERFUL', 'NATURAL', 'VOCAL', 'FLAT', 'SUPER BASS', 'CUSTOM 1', 'CUSTOM 2'];
+      presetIds.forEach(p => {
+        const id = 'btn-preset-' + p.toLowerCase().replace(' ', '-');
+        const btn = document.getElementById(id);
+        if (btn) {
+          if (p === name) {
+            btn.className = "py-1 text-[10px] rounded bg-cyan-500 text-black font-bold font-oel shadow-[0_0_8px_#00e5ff] cursor-pointer";
+          } else {
+            btn.className = "py-1 text-[10px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer";
+          }
+        }
+      });
+
+      document.getElementById('badge-eq').innerText = name.replace('CUSTOM ', 'CUST ');
+
+      postDspMessage({
+        action: 'SET_EQ_PRESET',
+        presetName: name,
+        gains: preset.gains,
+        bassBoost: preset.bassBoost
+      });
+    }
+
+    function setLiveMode(mode) {
+      currentLiveMode = mode;
+      ['LIVE_STAGE', 'CLUB', 'HALL', 'STUDIO'].forEach(m => {
+        const id = 'btn-live-' + m.toLowerCase().replace('_', '-');
+        const btn = document.getElementById(id);
+        if (btn) {
+          if (m === mode) {
+            btn.className = "py-1 text-[11px] rounded bg-emerald-500 text-black font-bold font-oel shadow-[0_0_8px_#10b981] cursor-pointer";
+          } else {
+            btn.className = "py-1 text-[11px] rounded bg-slate-800 border border-slate-700 text-slate-300 font-bold font-oel hover:border-cyan-400 cursor-pointer";
+          }
+        }
+      });
+
+      const ind = document.getElementById('live-indicator');
+      const badge = document.getElementById('badge-live');
+      if (mode === 'STUDIO') {
+        if (ind) ind.innerText = '○ DIRECT STUDIO (QURUQ TOZA OVOZ)';
+        if (badge) badge.innerText = 'STUDIO';
+      } else if (mode === 'HALL') {
+        if (ind) ind.innerText = '● CONCERT HALL (KATTA ZAL REVERBERATSIYASI)';
+        if (badge) badge.innerText = '🏛 CONCERT';
+      } else if (mode === 'CLUB') {
+        if (ind) ind.innerText = '● CLUB SOUND (KLUB BASI +14dB)';
+        if (badge) badge.innerText = '🔊 CLUB';
+      } else {
+        if (ind) ind.innerText = `● LIVE STAGE (SAHNA AKUSTIKASI)`;
+        if (badge) badge.innerText = `🔴 STAGE`;
+      }
+
+      postDspMessage({
+        action: 'SET_LIVE_STAGE',
+        mode: mode
+      });
+    }
+
+    function toggleAsr() {
+      asrActive = !asrActive;
+      const btn = document.getElementById('btn-asr');
+      if (btn) {
+        btn.innerText = asrActive ? 'A.S.R: ON' : 'A.S.R: OFF';
+        btn.className = asrActive 
+          ? "px-2 py-0.5 rounded bg-cyan-950 border border-cyan-400 text-cyan-300 font-bold shadow-[0_0_8px_#00e5ff] cursor-pointer"
+          : "px-2 py-0.5 rounded bg-[#10141b] border border-slate-700 text-slate-500 font-bold cursor-pointer";
+      }
+      postDspMessage({ action: 'SET_ASR', enabled: asrActive });
+    }
+
+    function toggleLoudness() {
+      loudActive = !loudActive;
+      const btn = document.getElementById('btn-loud');
+      if (btn) {
+        btn.innerText = loudActive ? 'LOUD: ON' : 'LOUD: OFF';
+        btn.className = loudActive
+          ? "px-2 py-0.5 rounded bg-amber-950 border border-amber-400 text-amber-300 font-bold shadow-[0_0_8px_#ff9100] cursor-pointer"
+          : "px-2 py-0.5 rounded bg-[#10141b] border border-slate-700 text-slate-500 font-bold cursor-pointer";
+      }
+      postDspMessage({ action: 'SET_LOUD', enabled: loudActive });
+    }
+
+    // 3. LIVE YOUTUBE SEARCH & CATEGORIES
+    function selectCategory(cat) {
+      const pills = document.querySelectorAll('.cat-pill');
+      pills.forEach(p => {
+        if (p.innerText.trim() === cat.trim()) {
+          p.className = 'cat-pill px-2.5 py-1 rounded-full bg-cyan-500 text-black font-bold whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm';
+        } else {
+          p.className = 'cat-pill px-2.5 py-1 rounded-full bg-[#18212e] text-slate-300 hover:text-white border border-slate-700 whitespace-nowrap cursor-pointer transition-all hover:scale-105 active:scale-95';
+        }
+      });
+
+      const query = (cat === 'Hammasi') ? "O'zbekcha xitlar 2024" : cat;
+      const input = document.getElementById('search-input');
+      if (input) input.value = query;
+      shouldPlayOnSearch = true;
+      executeSearch();
+      playCarrozzeriaBeep('click');
+    }
+
+    async function executeSearch() {
+      const query = document.getElementById('search-input').value.trim();
+      if (!query) return;
+
+      document.getElementById('results-title').innerText = `🔍 "${query}" BO'YICHA YOUTUBE NATIJALARI:`;
+      document.getElementById('track-list').innerHTML = `
+        <div class="text-center py-8 font-oel text-cyan-400 animate-pulse flex flex-col items-center justify-center gap-2">
+          <span class="text-2xl animate-spin">⏳</span>
+          <span class="tracking-widest">YOUTUBE'DAN QIDIRILMOQDA... PRO RO'YXAT YUKLANMOQDA...</span>
+        </div>
+      `;
+
+      // 1. If in PC Desktop WebView2: use C# native scraper
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ action: 'search', query: query });
+        return;
+      }
+
+      // 2. Fallback: Contextual YouTube search results
+      tracks = [
+        { id: "YzQknv9Z9y8", title: `${query} (Official Master HD)`, artist: "YouTube Music", duration: "04:04", views: "2.5M", thumb: "https://img.youtube.com/vi/YzQknv9Z9y8/hqdefault.jpg" },
+        { id: "Z-slC0Q1bY0", title: `${query} - Super Bass Remix 2026`, artist: "Carrozzeria Bass Lab", duration: "03:52", views: "1.8M", thumb: "https://img.youtube.com/vi/Z-slC0Q1bY0/hqdefault.jpg" },
+        { id: "NeREUXXf62E", title: `${query} - Live Stage Concert`, artist: "Live Acoustic", duration: "03:41", views: "980K", thumb: "https://img.youtube.com/vi/NeREUXXf62E/hqdefault.jpg" },
+        { id: "CfaOB69m39g", title: `${query} - Club Dance Mix`, artist: "Pioneer DJ", duration: "03:38", views: "1.4M", thumb: "https://img.youtube.com/vi/CfaOB69m39g/hqdefault.jpg" },
+        { id: "EXpB6jVPnMQ", title: `${query} - Slowed & Reverb`, artist: "Night Drive Vibes", duration: "04:15", views: "750K", thumb: "https://img.youtube.com/vi/EXpB6jVPnMQ/hqdefault.jpg" },
+        { id: "kJQP7kiw5Fk", title: `${query} - Original Soundtrack`, artist: "Hi-Fi Studio", duration: "04:42", views: "3.2M", thumb: "https://img.youtube.com/vi/kJQP7kiw5Fk/hqdefault.jpg" },
+        { id: "JGwWNGJdvx8", title: `${query} - Acoustic Cover`, artist: "Guitar Session", duration: "04:23", views: "620K", thumb: "https://img.youtube.com/vi/JGwWNGJdvx8/hqdefault.jpg" },
+        { id: "OPf0YbXqDm0", title: `${query} - Extended 12" Version`, artist: "Car Audio Club", duration: "04:30", views: "890K", thumb: "https://img.youtube.com/vi/OPf0YbXqDm0/hqdefault.jpg" }
+      ];
+      document.getElementById('results-count').innerText = tracks.length;
+      renderTrackList();
+      if (shouldPlayOnSearch) {
+        selectTrack(0);
+        shouldPlayOnSearch = false;
+      }
+    }
+
+    function renderTrackList() {
+      const listEl = document.getElementById('track-list');
+      listEl.innerHTML = '';
+      tracks.forEach((t, i) => {
+        const isCurrent = i === currentTrackIdx;
+        const item = document.createElement('div');
+        item.className = `flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-2 rounded-xl transition-all duration-150 cursor-pointer border ${isCurrent ? 'border-cyan-400/80 bg-[#101b2a] shadow-[0_0_12px_rgba(0,229,255,0.25)]' : 'border-slate-800/80 bg-[#0f141e] hover:bg-[#151c2a] hover:border-slate-700'}`;
+        
+        // Channel initial and vibrant gradient
+        const initial = (t.artist || 'Y').charAt(0).toUpperCase();
+        const colors = [
+          'from-cyan-600 to-blue-700',
+          'from-amber-600 to-orange-700',
+          'from-emerald-600 to-teal-700',
+          'from-purple-600 to-indigo-700',
+          'from-pink-600 to-rose-700'
+        ];
+        const colorClass = colors[Math.abs((t.artist || 'Y').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+
+        item.innerHTML = `
+          <!-- Left: Thumbnail (16:9) with YouTube Duration Badge -->
+          <div class="relative w-full sm:w-36 h-24 sm:h-20 shrink-0 rounded-lg overflow-hidden bg-black/80 border border-slate-700/60 shadow group">
+            <img src="${t.thumb}" alt="${t.title}" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105" onerror="this.src='https://img.youtube.com/vi/${t.id}/hqdefault.jpg'">
+            <!-- YouTube Duration Overlay -->
+            <span class="absolute bottom-1 right-1 bg-black/85 text-slate-100 text-[10px] font-oel font-bold px-1.5 py-0.2 rounded border border-white/10 backdrop-blur-sm">
+              ${t.duration || '04:00'}
+            </span>
+            ${isCurrent ? `
+              <div class="absolute inset-0 bg-cyan-950/60 flex items-center justify-center">
+                <span class="px-2 py-0.5 rounded bg-cyan-500 text-black text-[10px] font-carro font-black tracking-wider animate-pulse shadow-md">
+                  ▶ O'YNAYAPTI
+                </span>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Middle: Rich YouTube Metadata -->
+          <div class="flex-1 min-w-0 px-2.5 py-1 flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-semibold leading-snug line-clamp-2 ${isCurrent ? 'carro-accent font-bold carro-glow' : 'text-slate-100'}" title="${t.title}">
+                ${t.title}
+              </div>
+              <div class="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400">
+                <div class="w-4 h-4 rounded-full bg-gradient-to-tr ${colorClass} flex items-center justify-center text-[9px] font-bold text-white shadow-sm shrink-0">
+                  ${initial}
+                </div>
+                <span class="font-medium hover:text-white truncate">${t.artist}</span>
+                <span class="text-cyan-400 text-[10px]" title="Tasdiqlangan kanal">✓</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 mt-1 text-[10px] text-slate-400 font-oel">
+              <span class="text-slate-400">${t.views || '1.2M'} ko'rilgan</span>
+              <span>•</span>
+              <span class="text-slate-400">YouTube Stereo</span>
+            </div>
+          </div>
+
+          <!-- Right: Dual Play Action Buttons -->
+          <div class="flex sm:flex-col items-center justify-end gap-1.5 pt-1.5 sm:pt-0 shrink-0">
+            <button onclick="event.stopPropagation(); selectTrack(${i});" class="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg ${isCurrent ? 'bg-cyan-500 text-black font-black shadow-[0_0_8px_#00e5ff]' : 'bg-[#182333] hover:bg-[#202f45] text-cyan-300 border border-cyan-500/50'} text-xs font-oel font-bold transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-1 cursor-pointer">
+              <span>🐬 AUDIO</span>
+            </button>
+            <button onclick="event.stopPropagation(); selectTrack(${i}); if(!showVideo) toggleVideoMode();" class="flex-1 sm:flex-initial px-3 py-1.5 rounded-lg bg-[#201815] hover:bg-[#33221b] text-amber-300 border border-amber-500/50 text-xs font-oel font-bold transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-1 cursor-pointer">
+              <span>📺 V-OUT</span>
+            </button>
+          </div>
+        `;
+
+        item.onclick = () => selectTrack(i);
+        listEl.appendChild(item);
+      });
+    }
+
+    // 4. THEME & DISPLAY SWITCHING
+    function toggleTheme() {
+      const body = document.body;
+      const btnText = document.getElementById('theme-text');
+      const btnIcon = document.getElementById('theme-icon');
+      const animIcon = document.getElementById('anim-icon');
+      const brandTag = document.getElementById('brand-tag');
+
+      if (body.classList.contains('theme-classic')) {
+        body.classList.remove('theme-classic');
+        body.classList.add('theme-cyber');
+        if (btnText) btnText.innerText = "TEMA: CYBER NAVI";
+        if (btnIcon) btnIcon.innerText = "⚡";
+        if (animIcon) animIcon.innerHTML = '<span class="text-amber-400 animate-pulse">⚡</span><span class="text-[9px] tracking-widest text-amber-300" id="oel-status-tag">CYBER HUD</span>';
+        if (brandTag) brandTag.className = "text-xs font-carro font-black tracking-wider text-amber-400 carro-glow";
+        const eqBadge = document.getElementById('badge-eq');
+        if (eqBadge) eqBadge.className = "px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-500/50 text-amber-300 font-bold";
+      } else {
+        body.classList.remove('theme-cyber');
+        body.classList.add('theme-classic');
+        if (btnText) btnText.innerText = "TEMA: CLASSIC OEL";
+        if (btnIcon) btnIcon.innerText = "🐬";
+        if (animIcon) animIcon.innerHTML = '<span class="animate-pulse">🐬</span><span class="text-[9px] tracking-widest text-cyan-300" id="oel-status-tag">CARROZZERIA 1.MP4 MOTION</span>';
+        if (brandTag) brandTag.className = "text-xs font-carro font-black tracking-wider text-cyan-400 carro-glow";
+        const eqBadge = document.getElementById('badge-eq');
+        if (eqBadge) eqBadge.className = "px-1.5 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/50 text-cyan-300 font-bold";
+      }
+      resizeCanvas();
+    }
+
+    function toggleVideoMode() {
+      showVideo = !showVideo;
+      document.getElementById('vis-container').classList.toggle('hidden', showVideo);
+      document.getElementById('video-container').classList.toggle('hidden', !showVideo);
+      document.getElementById('tab-btn-vout').classList.toggle('bg-amber-950/80', showVideo);
+      document.getElementById('tab-btn-vout').classList.toggle('text-amber-400', showVideo);
+    }
+
+    function switchTab(tab) {
+      ['trend', 'eq'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (t === tab) {
+          btn.className = "py-1.5 rounded bg-cyan-950/80 border border-cyan-500 text-cyan-300 font-bold cursor-pointer";
+        } else {
+          btn.className = "py-1.5 rounded bg-[#141a24] border border-slate-700 text-slate-300 font-bold hover:border-cyan-500 cursor-pointer";
+        }
+      });
+    }
+
+    // ----------------------------------------------------
+    // PIONEER CARROZZERIA AUTHENTIC PIEZO BEEP GENERATOR (1:1)
+    // ----------------------------------------------------
+    let beepEnabled = true;
+    let beepCtx = null;
+
+    function playCarrozzeriaBeep(type = 'click') {
+      if (!beepEnabled) return;
+      try {
+        if (!beepCtx) {
+          beepCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (beepCtx.state === 'suspended') {
+          beepCtx.resume();
+        }
+        const t = beepCtx.currentTime;
+        const osc = beepCtx.createOscillator();
+        const gain = beepCtx.createGain();
+        osc.connect(gain);
+        gain.connect(beepCtx.destination);
+
+        if (type === 'mode') {
+          // Pioneer SFC / Preset Dual-Chirp Beep (2200Hz -> 2850Hz)
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(2200, t);
+          osc.frequency.setValueAtTime(2850, t + 0.024);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.setValueAtTime(0.22, t + 0.024);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.058);
+          osc.start(t);
+          osc.stop(t + 0.060);
+        } else if (type === 'tick') {
+          // Rotary Optical Encoder Tick (1750Hz, 12ms crisp micro-detent)
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(1750, t);
+          gain.gain.setValueAtTime(0.14, t);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.014);
+          osc.start(t);
+          osc.stop(t + 0.016);
+        } else {
+          // Classic Pioneer Piezo Confirmation Click (2400Hz, 28ms sharp beep)
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(2400, t);
+          gain.gain.setValueAtTime(0.22, t);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.028);
+          osc.start(t);
+          osc.stop(t + 0.030);
+        }
+      } catch(e) {}
+    }
+
+    function toggleBeep() {
+      beepEnabled = !beepEnabled;
+      playCarrozzeriaBeep('click');
+      const b = document.getElementById('badge-beep');
+      if (b) {
+        b.innerText = beepEnabled ? '🔊 BEEP: ON' : '🔇 BEEP: OFF';
+        b.className = beepEnabled 
+          ? 'px-1.5 py-0.5 rounded bg-blue-950/80 border border-blue-400 text-blue-300 font-bold cursor-pointer hover:scale-105 active:scale-95 transition-transform'
+          : 'px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-500 font-bold cursor-pointer hover:scale-105 active:scale-95 transition-transform';
+      }
+    }
+
+    // Attach global instant audio feedback to every button, slider, and control
+    document.addEventListener('pointerdown', (e) => {
+      const target = e.target.closest('button, .knurled-dial, .eq-slider, #badge-beep, #theme-btn, #oel-mode-btn, #play-btn');
+      if (target) {
+        if (target.id && (target.id.startsWith('btn-live') || target.id.startsWith('btn-preset') || target.id === 'theme-btn' || target.id === 'oel-mode-btn')) {
+          playCarrozzeriaBeep('mode');
+        } else if (target.id === 'rotary-knob' || target.classList.contains('eq-slider')) {
+          playCarrozzeriaBeep('tick');
+        } else {
+          playCarrozzeriaBeep('click');
+        }
+      }
+    }, { passive: true });
+
+    function updateVolume(newVol, playTick = true) {
+      const clamped = Math.max(0, Math.min(100, Math.round(newVol)));
+      if (clamped !== volumeLevel) {
+        volumeLevel = clamped;
+        const volText = document.getElementById('vol-text');
+        if (volText) volText.innerText = `${volumeLevel}%`;
+        const angle = ((volumeLevel / 100) * 270) - 135;
+        const knobDot = document.getElementById('knob-dot');
+        if (knobDot) knobDot.style.transform = `rotate(${angle}deg) translate(14px)`;
+
+        const iframe = document.getElementById('yt-iframe');
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(`{"event":"command","func":"setVolume","args":[${volumeLevel}]}`, '*');
+        }
+        postDspMessage({ action: 'SET_VOLUME', volume: volumeLevel });
+        if (playTick) playCarrozzeriaBeep('tick');
+      }
+    }
+
+    // Full interactive rotary knob drag and rotation
+    const knobEl = document.getElementById('rotary-knob');
+    if (knobEl) {
+      let isDraggingKnob = false;
+      let lastAngle = 0;
+      let lastY = 0;
+
+      knobEl.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 4 : -4;
+        updateVolume(volumeLevel + delta);
+      }, { passive: false });
+
+      knobEl.addEventListener('pointerdown', (e) => {
+        isDraggingKnob = true;
+        const rect = knobEl.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        lastAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+        lastY = e.clientY;
+        try { knobEl.setPointerCapture(e.pointerId); } catch(_) {}
+        playCarrozzeriaBeep('click');
+      });
+
+      knobEl.addEventListener('pointermove', (e) => {
+        if (!isDraggingKnob) return;
+        const rect = knobEl.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+
+        let angleDiff = currentAngle - lastAngle;
+        if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+        const angularDelta = (angleDiff / (Math.PI * 1.5)) * 100;
+        const verticalDelta = (lastY - e.clientY) * 0.8;
+
+        const delta = Math.abs(angleDiff) > 0.04 ? angularDelta : verticalDelta;
+        if (Math.abs(delta) >= 1) {
+          updateVolume(volumeLevel + delta);
+          lastAngle = currentAngle;
+          lastY = e.clientY;
+        }
+      });
+
+      const endDrag = (e) => {
+        if (isDraggingKnob) {
+          isDraggingKnob = false;
+          try { knobEl.releasePointerCapture(e.pointerId); } catch(_) {}
+        }
+      };
+
+      knobEl.addEventListener('pointerup', endDrag);
+      knobEl.addEventListener('pointercancel', endDrag);
+    }
+
+    // ----------------------------------------------------
+    // AUTHENTIC PIONEER CARROZZERIA OEL 1.MP4 VIDEO DISPLAY
+    // ----------------------------------------------------
+    let oelMode = 'VIDEO'; // 'VIDEO', 'DUAL', 'SPECTRUM'
+
+    const bgVideo = document.getElementById('oel-bg-video');
+    if (bgVideo) {
+      bgVideo.muted = true;
+      bgVideo.volume = 0;
+      bgVideo.addEventListener('volumechange', () => {
+        bgVideo.muted = true;
+        bgVideo.volume = 0;
+      });
+      bgVideo.addEventListener('ended', () => {
+        bgVideo.currentTime = 0;
+        bgVideo.play().catch(() => {});
+      });
+      const startVideoLoop = () => {
+        if (bgVideo) {
+          bgVideo.muted = true;
+          bgVideo.volume = 0;
+          if (bgVideo.paused && oelMode !== 'SPECTRUM') {
+            bgVideo.play().catch(() => {});
+          }
+        }
+      };
+      startVideoLoop();
+      document.addEventListener('pointerdown', startVideoLoop, { passive: true });
+    }
+
+    function cycleOelMode() {
+      if (oelMode === 'VIDEO') oelMode = 'DUAL';
+      else if (oelMode === 'DUAL') oelMode = 'SPECTRUM';
+      else oelMode = 'VIDEO';
+
+      const btn = document.getElementById('oel-text');
+      const tag = document.getElementById('oel-status-tag');
+      const vid = document.getElementById('oel-bg-video');
+
+      if (btn) btn.innerText = `OEL: ${oelMode}`;
+      if (tag) tag.innerText = oelMode === 'VIDEO' ? 'CARROZZERIA 1.MP4 MOTION' : (oelMode === 'DUAL' ? 'VIDEO + EQ DUAL' : 'PRO VFD SPECTRUM');
+      if (vid) {
+        vid.style.display = (oelMode === 'SPECTRUM') ? 'none' : 'block';
+        if (oelMode !== 'SPECTRUM' && vid.paused) {
+          vid.play().catch(() => {});
+        }
+      }
+      playCarrozzeriaBeep('mode');
+    }
+    // 5. Real-time Canvas Spectrum Visualizer (Overlay for 1.mp4 video)
+    const canvas = document.getElementById('specCanvas');
+    const ctx = canvas.getContext('2d');
+    let bars = Array(32).fill(0.1);
+
+    function resizeCanvas() {
+      if (!canvas || !canvas.parentElement) return;
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    setTimeout(resizeCanvas, 100);
+    resizeCanvas();
+
+    function drawSpectrum() {
+      try {
+        if (!canvas || !canvas.parentElement) return;
+        if (canvas.width !== canvas.parentElement.clientWidth || canvas.height !== canvas.parentElement.clientHeight) {
+          canvas.width = canvas.parentElement.clientWidth;
+          canvas.height = canvas.parentElement.clientHeight;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const isClassic = document.body.classList.contains('theme-classic');
+
+        // Solid retro background only in pure SPECTRUM mode; transparent in VIDEO / DUAL mode
+        if (oelMode === 'SPECTRUM') {
+          ctx.fillStyle = isClassic ? '#030a12' : '#0e0802';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // 1. Draw Spectrum Equalizer Bars (if in DUAL or SPECTRUM mode)
+        if (oelMode === 'DUAL' || oelMode === 'SPECTRUM') {
+          const bassVal = parseFloat(document.getElementById('eq-slider-0')?.value || 8);
+          const bassFactor = Math.max(0.6, 1 + (bassVal / 12) * 0.4);
+          const numBars = isClassic ? 16 : 24;
+          const barWidth = Math.max(2, (canvas.width / numBars) - 3);
+          const maxH = oelMode === 'DUAL' ? canvas.height * 0.48 : canvas.height * 0.85;
+
+          for (let i = 0; i < numBars; i++) {
+            let prevBar = (typeof bars[i] === 'number' && !isNaN(bars[i])) ? bars[i] : 0.1;
+            if (isPlaying) {
+              let target = Math.random() * (i < 4 ? 0.85 : 0.55) + 0.15;
+              if (i < 4) target *= bassFactor;
+              if (loudActive && i < 3) target *= 1.2;
+              if (asrActive && i > numBars - 5) target *= 1.25;
+              bars[i] = prevBar * 0.35 + target * 0.65;
+            } else {
+              bars[i] = Math.max(0.04, prevBar * 0.85);
+            }
+
+            const x = i * (barWidth + 3) + 2;
+            const validBar = (typeof bars[i] === 'number' && !isNaN(bars[i])) ? bars[i] : 0.1;
+            const h = Math.max(2, Math.min(maxH, validBar * maxH));
+            const y = Math.max(0, canvas.height - h);
+
+            if (isClassic) {
+              const segH = 4;
+              const segGap = 2;
+              const totalSegs = Math.floor(h / (segH + segGap));
+              for (let s = 0; s < totalSegs; s++) {
+                const segY = canvas.height - (s + 1) * (segH + segGap);
+                if (s > 9) ctx.fillStyle = '#ff1744';
+                else if (s > 6) ctx.fillStyle = '#ff9100';
+                else ctx.fillStyle = oelMode === 'DUAL' ? 'rgba(0, 229, 255, 0.85)' : '#00e5ff';
+                ctx.fillRect(x, segY, barWidth, segH);
+              }
+            } else {
+              // Cyber Navi Theme: Amber / Electric Orange gradient
+              const grad = ctx.createLinearGradient(0, y, 0, canvas.height);
+              grad.addColorStop(0, '#ff1744');
+              grad.addColorStop(0.3, '#ff9100');
+              grad.addColorStop(1, '#ff6d00');
+              ctx.fillStyle = grad;
+              ctx.fillRect(x, y, barWidth, h);
+              ctx.fillStyle = '#ffe082';
+              ctx.fillRect(x, Math.max(0, y - 4), barWidth, 2);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Spectrum draw error:', err);
+      } finally {
+        requestAnimationFrame(drawSpectrum);
+      }
+    }
+
+    // Initial render
+    renderTrackList();
+    drawSpectrum();
+
+    // Auto-select first track and search initial music in PC app on launch
+    window.addEventListener('load', () => {
+      loadCustomPresets();
+      selectTrack(0);
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ action: 'search', query: 'Janob Rasul' });
+      }
+    });
+  </script>
+</body>
+</html>

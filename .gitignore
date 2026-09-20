@@ -1,0 +1,18 @@
+# Android build outputs and intermediate files
+android/**/build/
+android/.gradle/
+android/local.properties
+android/*.iml
+android/.idea/
+
+# .NET / C# build outputs
+pc/**/bin/
+pc/**/obj/
+*.WebView2/
+**/*.WebView2/
+
+# OS and temporary files
+*.tmp
+*.log
+.DS_Store
+Thumbs.db

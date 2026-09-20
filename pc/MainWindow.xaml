@@ -1,0 +1,47 @@
+<Window x:Class="DiroTube.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        mc:Ignorable="d"
+        Title="Diro Tube - Carrozzeria Edition"
+        Height="720" Width="820"
+        MinHeight="560" MinWidth="680"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="#07090C">
+
+    <Border BorderBrush="#2A3546" BorderThickness="2" CornerRadius="12" Background="#0C1017">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="36"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Custom Carrozzeria TitleBar -->
+            <Grid Grid.Row="0" Background="#141B26" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                    <TextBlock Text="PIONEER" Foreground="#889BB0" FontSize="10" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="DIRO TUBE // CARROZZERIA EDITION" Foreground="#00E5FF" FontSize="11" FontWeight="Heavy" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Window Action Buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Button Content="—" Width="32" Height="26" Background="#1B2433" Foreground="#B0BEC5" BorderThickness="0" Margin="2,0" Click="BtnMinimize_Click" ToolTip="Kichraytirish"/>
+                    <Button Content="🗖" Width="32" Height="26" Background="#1B2433" Foreground="#B0BEC5" BorderThickness="0" Margin="2,0" Click="BtnMaximize_Click" ToolTip="Kattalashtirish / Tiklash"/>
+                    <Button Content="✕" Width="32" Height="26" Background="#331B22" Foreground="#FF5252" BorderThickness="0" Margin="2,0" Click="BtnClose_Click" ToolTip="Yopish"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- WebView2 Main Carrozzeria Player Engine -->
+            <wv2:WebView2 Grid.Row="1" x:Name="webView" Margin="1" />
+        </Grid>
+    </Border>
+</Window>

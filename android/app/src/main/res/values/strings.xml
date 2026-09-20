@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Diro Tube</string>
+    <string name="source_tube">TUBE</string>
+    <string name="source_bt">BT-AUDIO</string>
+    <string name="source_aux">AUX</string>
+    <string name="eq_powerful">POWERFUL</string>
+    <string name="eq_natural">NATURAL</string>
+    <string name="eq_vocal">VOCAL</string>
+    <string name="eq_flat">FLAT</string>
+    <string name="eq_super_bass">SUPER BASS</string>
+    <string name="eq_custom1">CUSTOM 1</string>
+    <string name="eq_custom2">CUSTOM 2</string>
+    <string name="loudness">LOUDNESS</string>
+    <string name="asr_title">ADVANCED SOUND RETRIEVER</string>
+    <string name="subwoofer_ctrl">SUBWOOFER CTRL</string>
+    <string name="trending_title">YOUTUBE TRENDING</string>
+    <string name="search_hint">Search YouTube music, artists, albums…</string>
+    <string name="notification_channel_name">Carrozzeria Playback Channel</string>
+    <string name="notification_channel_desc">Shows active YouTube playback and Carrozzeria audio controls</string>
+</resources>

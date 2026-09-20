@@ -1,0 +1,63 @@
+name: Build Diro Tube (iOS IPA & Android APK)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./android/gradlew
+
+      - name: Build Android APK
+        working-directory: ./android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiroTube-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  build-ios:
+    name: Build iOS IPA (for Sideloadly)
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Prepare iOS Payload Bundle
+        run: |
+          mkdir -p Payload/DiroTube.app
+          if [ -d "ios/Payload/DiroTube.app" ]; then
+            cp -R ios/Payload/DiroTube.app/* Payload/DiroTube.app/
+          fi
+          # Ensure Info.plist is present
+          if [ ! -f "Payload/DiroTube.app/Info.plist" ]; then
+            cp ios/Info.plist Payload/DiroTube.app/
+          fi
+          zip -r9 DiroTube.ipa Payload/
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiroTube-iOS-IPA
+          path: DiroTube.ipa
+          if-no-files-found: error

@@ -13,7 +13,7 @@
 </head>
 <body>
   <iframe id="yt-player" 
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" 
           allowfullscreen 
           playsinline 
           webkit-playsinline 
@@ -22,36 +22,57 @@
 
   <script>
     const params = new URLSearchParams(window.location.search);
-    const v = params.get('v') || 'YzQknv9Z9y8';
+    let currentVideoId = params.get('v') || 'YzQknv9Z9y8';
     const iframe = document.getElementById('yt-player');
-    
-    // Set YouTube Embed URL with origin and full referer compliance
-    iframe.src = `https://www.youtube-nocookie.com/embed/${v}?autoplay=1&playsinline=1&enablejsapi=1&rel=0`;
 
-    // Forward messages between parent (Diro Tube iOS app) and YouTube iframe
+    function getEmbedUrl(vid) {
+      return 'https://www.youtube-nocookie.com/embed/' + vid +
+             '?autoplay=1&playsinline=1&enablejsapi=1&rel=0&controls=1&modestbranding=1' +
+             '&origin=https://xolboyevkamron823-dev.github.io' +
+             '&widget_referrer=https://xolboyevkamron823-dev.github.io/diro-tube/';
+    }
+
+    // Initialize iframe src with origin compliance
+    iframe.src = getEmbedUrl(currentVideoId);
+
+    // Forward messages between parent (Diro Tube app) and YouTube iframe
     window.addEventListener('message', function(event) {
-      if (event.data) {
-        // 1. From parent app -> to YouTube
-        if (iframe && iframe.contentWindow && event.source !== iframe.contentWindow) {
-          try {
-            iframe.contentWindow.postMessage(event.data, '*');
-          } catch(e) {}
-        }
-        // 2. From YouTube -> to parent app
-        if (event.source === iframe.contentWindow && window.parent && window.parent !== window) {
-          try {
-            window.parent.postMessage(event.data, '*');
-          } catch(e) {}
-        }
+      if (!event.data) return;
+      let data = event.data;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch(e) {}
       }
-    });
 
-    // Invidious fallback if YouTube fails
-    let fallbackTriggered = false;
-    window.addEventListener('error', function() {
-      if (!fallbackTriggered) {
-        fallbackTriggered = true;
-        iframe.src = `https://invidious.nerdvpn.de/embed/${v}?autoplay=1&playsinline=1`;
+      // Handle loadVideo command without destroying iframe context
+      if (data && data.action === 'loadVideo' && data.videoId) {
+        if (data.videoId !== currentVideoId) {
+          currentVideoId = data.videoId;
+          try {
+            iframe.contentWindow.postMessage(JSON.stringify({
+              event: 'command',
+              func: 'loadVideoById',
+              args: [currentVideoId]
+            }), '*');
+          } catch(err) {
+            iframe.src = getEmbedUrl(currentVideoId);
+          }
+        }
+        return;
+      }
+
+      // 1. From parent app -> to YouTube iframe (Play, Pause, Volume, Seek, SET_EQ, SET_DSP)
+      if (iframe && iframe.contentWindow && event.source !== iframe.contentWindow) {
+        try {
+          const payload = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
+          iframe.contentWindow.postMessage(payload, '*');
+        } catch(e) {}
+      }
+
+      // 2. From YouTube iframe -> to parent app (Playback progress, State change, Track ended)
+      if (event.source === iframe.contentWindow && window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage(event.data, '*');
+        } catch(e) {}
       }
     });
   </script>

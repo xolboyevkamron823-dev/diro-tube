@@ -1068,14 +1068,24 @@
       updateTimeDisplays(0, currentDuration);
       renderFeedList();
 
-      // Load YouTube embed via local high-speed HTTP bridge (zero latency, zero 404, zero Error 153)
+      // Seamless track change without destroying iframe context
       const iframe = document.getElementById('yt-iframe');
       if (iframe) {
-        iframe.src = `http://127.0.0.1:18080/player.html?v=${t.id}`;
+        if (!iframe.src || iframe.src === 'about:blank') {
+          iframe.src = `http://127.0.0.1:18080/player.html?v=${t.id}`;
+        } else {
+          try {
+            iframe.contentWindow.postMessage(JSON.stringify({ action: 'loadVideo', videoId: t.id }), '*');
+          } catch(e) {
+            iframe.src = `http://127.0.0.1:18080/player.html?v=${t.id}`;
+          }
+        }
       }
 
       isPlaying = true;
       document.getElementById('play-btn').innerText = "⏸";
+      sendDspUpdate();
+      sendLiveMode(currentLiveMode);
       playBeep('beep');
     }
 
@@ -1100,9 +1110,6 @@
     function nextTrack() {
       currentTrackIdx = (currentTrackIdx + 1) % tracks.length;
       selectTrack(currentTrackIdx);
-      if (currentTrackIdx >= tracks.length - 2) {
-        autoFetchMoreTracks();
-      }
     }
 
     function prevTrack() {
@@ -1170,6 +1177,12 @@
             isPlaying = false;
             document.getElementById('play-btn').innerText = "▶";
           }
+        }
+
+        // Direct trackEnded event
+        if (data.event === 'trackEnded') {
+          console.log('[Diro Tube] trackEnded received, playing next...');
+          if (autoplayEnabled) nextTrack();
         }
       } catch(e) {}
     });
@@ -1360,12 +1373,22 @@
       `).join('');
     }
 
+    let searchTimer = null;
+
     function executeSearch() {
       const q = document.getElementById('search-input').value.trim();
       if (!q) return;
 
-      document.getElementById('feed-status-title').innerText = `🔍 "${q}" BO'YICHA YUKLANMOQDA...`;
+      document.getElementById('feed-status-title').innerText = `🔍 "${q}" BO'YICHA QIDIRILMOQDA...`;
       playBeep('beep');
+
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const titleEl = document.getElementById('feed-status-title');
+        if (titleEl && titleEl.innerText.includes('QIDIRILMOQDA')) {
+          titleEl.innerText = `🔍 "${q}" NATIJALARI KUTILMOQDA...`;
+        }
+      }, 5000);
 
       // 1. If inside iOS native wrapper:
       if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.diroTube) {
@@ -1379,52 +1402,27 @@
         return;
       }
 
-      // 3. Fallback search
+      // 3. Browser fallback
       searchApiFallback(q);
     }
 
     // Callback called from Native iOS / C# PC
     window.onNativeSearchResults = function(data) {
+      if (searchTimer) clearTimeout(searchTimer);
       if (data && data.tracks && data.tracks.length > 0) {
         tracks = data.tracks;
-        document.getElementById('feed-status-title').innerText = `🔍 "${data.query || 'Qidiruv'}" NATIJALARI:`;
+        currentTrackIdx = 0;
+        document.getElementById('feed-status-title').innerText = `🔍 "${data.query || 'Qidiruv'}" NATIJALARI (${tracks.length} ta video):`;
         renderFeedList();
         selectTrack(0);
+      } else {
+        document.getElementById('feed-status-title').innerText = `⚠️ "${data ? data.query : ''}" bo'yicha hech narsa topilmadi.`;
       }
     };
 
     async function searchApiFallback(q) {
-      try {
-        const res = await fetch(`https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(q)}&type=video`);
-        if (res.ok) {
-          const list = await res.json();
-          if (list && list.length > 0) {
-            tracks = list.slice(0, 25).map(item => ({
-              id: item.videoId,
-              title: item.title,
-              artist: item.author || 'YouTube',
-              duration: formatTime(item.lengthSeconds),
-              views: `${Math.round((item.viewCount || 100000) / 1000)}K`,
-              thumb: `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`
-            }));
-            document.getElementById('feed-status-title').innerText = `🔍 "${q}" NATIJALARI:`;
-            renderFeedList();
-            selectTrack(0);
-            return;
-          }
-        }
-      } catch(e) {}
-
-      // Curated results
-      tracks = [
-        { id: "YzQknv9Z9y8", title: `${q} - Official HD Master`, artist: "YouTube Music", duration: "04:05", views: "1.2M", thumb: "https://img.youtube.com/vi/YzQknv9Z9y8/hqdefault.jpg" },
-        { id: "Z-slC0Q1bY0", title: `${q} - Carrozzeria Super Bass Remix`, artist: "Bass Lab", duration: "03:48", views: "980K", thumb: "https://img.youtube.com/vi/Z-slC0Q1bY0/hqdefault.jpg" },
-        { id: "NeREUXXf62E", title: `${q} - Live Stage Concert 2026`, artist: "Live Stage", duration: "03:35", views: "750K", thumb: "https://img.youtube.com/vi/NeREUXXf62E/hqdefault.jpg" },
-        { id: "CfaOB69m39g", title: `${q} - Club Dance Hi-Fi`, artist: "Pioneer DJ", duration: "04:12", views: "1.4M", thumb: "https://img.youtube.com/vi/CfaOB69m39g/hqdefault.jpg" }
-      ];
       document.getElementById('feed-status-title').innerText = `🔍 "${q}" NATIJALARI:`;
       renderFeedList();
-      selectTrack(0);
     }
 
     function selectCategory(cat) {
@@ -1437,17 +1435,34 @@
       executeSearch();
     }
 
-    function autoFetchMoreTracks() {
-      const cur = tracks[currentTrackIdx];
-      const extraTracks = [
-        { id: "e-ORhEE9VVg", title: `${cur.artist} - Qo'shimcha Xit`, artist: cur.artist, duration: "03:45", views: "820K", thumb: "https://img.youtube.com/vi/e-ORhEE9VVg/hqdefault.jpg" },
-        { id: "L_LUpnjgPso", title: `${cur.artist} - Romantik Akustika`, artist: cur.artist, duration: "04:18", views: "650K", thumb: "https://img.youtube.com/vi/L_LUpnjgPso/hqdefault.jpg" }
-      ];
-      tracks.push(...extraTracks);
-      renderFeedList();
+    // 11. CARROZZERIA DSP MESSAGING & AUDIO HOOK
+    function sendDspUpdate() {
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({ type: 'SET_EQ', gains: eqGains }), '*');
+        } catch(e) {}
+      }
     }
 
-    // 11. DSP LIVE STAGE & EFFECTS
+    function sendLiveMode(mode) {
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({ type: 'SET_DSP', mode: mode }), '*');
+        } catch(e) {}
+      }
+    }
+
+    function sendBassBoost(val) {
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({ type: 'SET_BASS', value: parseInt(val) }), '*');
+        } catch(e) {}
+      }
+    }
+
     function setLiveMode(mode) {
       currentLiveMode = mode;
       ['hall', 'stage', 'club', 'studio'].forEach(m => {
@@ -1458,15 +1473,18 @@
       else if (mode === 'STAGE') badge.innerText = 'LIVE STAGE';
       else if (mode === 'CLUB') badge.innerText = 'CLUB BASS';
       else badge.innerText = 'STUDIO 24-BIT';
+      sendLiveMode(mode);
       playBeep('beep');
     }
 
     function updateHallDepth(val) {
       document.getElementById('hall-depth-lbl').innerText = `${val}%`;
+      sendDspUpdate();
     }
 
     function updateBassBoost(val) {
       document.getElementById('bass-boost-lbl').innerText = `+${val}dB`;
+      sendBassBoost(val);
     }
 
     // 12. EQUALIZER & PRESETS
@@ -1490,12 +1508,14 @@
         if (valLbl) valLbl.innerText = `${g > 0 ? '+' : ''}${g} dB`;
       });
 
+      sendDspUpdate();
       playBeep('beep');
     }
 
     function onEqSlider(idx, val) {
       eqGains[idx] = parseInt(val);
       document.getElementById(`eq-val-${idx}`).innerText = `${val > 0 ? '+' : ''}${val} dB`;
+      sendDspUpdate();
     }
 
     function saveCustomPreset(num) {
@@ -1530,8 +1550,13 @@
 
       for (let i = 0; i < barCount; i++) {
         if (isPlaying) {
-          const target = Math.random() * (canvas.height - 6) + 4;
-          specHeights[i] += (target - specHeights[i]) * 0.28;
+          const eqIdx = Math.min(6, Math.floor((i / barCount) * 7));
+          const eqBoost = (eqGains[eqIdx] || 0) * 1.4;
+          let target = Math.random() * (canvas.height - 12) + 4 + eqBoost;
+          if (currentLiveMode === 'HALL') target += Math.random() * 5;
+          if (currentLiveMode === 'CLUB' && i < 8) target += 9;
+          target = Math.max(3, Math.min(canvas.height - 2, target));
+          specHeights[i] += (target - specHeights[i]) * 0.30;
         } else {
           specHeights[i] += (4 - specHeights[i]) * 0.1;
         }

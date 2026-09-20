@@ -43,16 +43,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Prepare iOS Payload Bundle
+      - name: Compile Native iOS Executable and Package IPA
         run: |
           mkdir -p Payload/DiroTube.app
-          if [ -d "ios/Payload/DiroTube.app" ]; then
-            cp -R ios/Payload/DiroTube.app/* Payload/DiroTube.app/
+          
+          # 1. Compile native ARM64 Mach-O iOS binary using Apple Clang
+          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=14.0 \
+            -framework UIKit -framework WebKit -framework AVFoundation -framework Foundation \
+            -fobjc-arc -o Payload/DiroTube.app/DiroTube ios/main.m
+
+          # 2. Copy Web App, Resources & Info.plist
+          cp ios/Info.plist Payload/DiroTube.app/
+          cp ios/Payload/DiroTube.app/index.html Payload/DiroTube.app/
+          if [ -f "ios/Payload/DiroTube.app/1.mp4" ]; then
+            cp ios/Payload/DiroTube.app/1.mp4 Payload/DiroTube.app/
           fi
-          # Ensure Info.plist is present
-          if [ ! -f "Payload/DiroTube.app/Info.plist" ]; then
-            cp ios/Info.plist Payload/DiroTube.app/
-          fi
+
+          # 3. Create DiroTube.ipa ready for Sideloadly
           zip -r9 DiroTube.ipa Payload/
 
       - name: Upload iOS IPA Artifact

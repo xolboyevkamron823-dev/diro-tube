@@ -1,0 +1,1523 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Diro Tube - Pioneer Carrozzeria DEH-P9900</title>
+  <style>
+    /* RESET & BASE */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: #03060a;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    input, button {
+      font-family: inherit;
+    }
+
+    /* SAFE AREA CONTAINER */
+    .app-viewport {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
+      background: radial-gradient(circle at 50% 10%, #101724 0%, #03060a 100%);
+    }
+
+    /* COLOR THEMES */
+    :root {
+      --accent: #00f0ff;
+      --accent-glow: rgba(0, 240, 255, 0.45);
+      --accent-dim: rgba(0, 240, 255, 0.15);
+      --chassis-bg: #0c111a;
+      --card-bg: #121824;
+      --card-border: #1e2838;
+      --text-muted: #8899ac;
+    }
+    body.theme-amber {
+      --accent: #ff9d00;
+      --accent-glow: rgba(255, 157, 0, 0.45);
+      --accent-dim: rgba(255, 157, 0, 0.15);
+      --chassis-bg: #14100c;
+      --card-bg: #1e1712;
+      --card-border: #38281c;
+      --text-muted: #ab9686;
+    }
+
+    /* PIONEER CHASSIS STYLING */
+    .pioneer-fascia {
+      background: linear-gradient(180deg, #1f2838 0%, #131a26 40%, #0a0e16 100%);
+      border-bottom: 2px solid #233045;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+      position: relative;
+    }
+    .hex-bolt {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #8fa3bd 20%, #2a374b 80%, #0d131d 100%);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    }
+    .brand-title {
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.15em;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand-title .pioneer-p {
+      color: #ef4444;
+      font-weight: 900;
+      font-size: 13px;
+    }
+    .brand-sub {
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      text-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* TOP QUICK ACTIONS */
+    .top-pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--card-border);
+      background: #0d121c;
+      color: #94a3b8;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .top-pill.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+      box-shadow: 0 0 8px var(--accent-dim);
+    }
+
+    /* DISPLAY SCREEN STAGE (16:9 RESPONSIVE SCREEN) */
+    .display-stage {
+      position: relative;
+      width: 100%;
+      height: 195px;
+      background: #000;
+      flex-shrink: 0;
+      border-bottom: 2px solid #1a2333;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .display-stage video, .display-stage iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      object-fit: cover;
+    }
+    .oel-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 40%, rgba(0,0,0,0.7) 100%);
+      transition: opacity 0.25s ease;
+    }
+    .oel-scanlines {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, rgba(0, 240, 255, 0.03) 0px, rgba(0, 240, 255, 0.03) 1px, transparent 2px, transparent 4px);
+      pointer-events: none;
+    }
+    .oel-badge {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      text-shadow: 0 0 6px var(--accent);
+      background: rgba(0,0,0,0.7);
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--accent-dim);
+    }
+    .oel-track-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffffff;
+      text-shadow: 0 0 10px rgba(255,255,255,0.7);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 90%;
+    }
+    .oel-artist {
+      font-size: 10px;
+      color: var(--accent);
+      letter-spacing: 0.05em;
+    }
+    .spec-canvas {
+      width: 100%;
+      height: 44px;
+      pointer-events: none;
+    }
+
+    /* MODE TOGGLE FLOATING BADGE */
+    .mode-switch-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 20;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 4px 9px;
+      border-radius: 20px;
+      background: rgba(12, 17, 26, 0.88);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.7);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .mode-switch-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* PIONEER CONTROLS DECK */
+    .controls-deck {
+      background: var(--chassis-bg);
+      border-bottom: 1px solid #1a2436;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      flex-shrink: 0;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    /* PROGRESS SCRUBBER */
+    .scrubber-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .time-lbl {
+      font-size: 10px;
+      font-family: monospace;
+      color: #94a3b8;
+      width: 38px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .time-slider {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      background: #1e293b;
+      border-radius: 3px;
+      outline: none;
+    }
+    .time-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      cursor: pointer;
+    }
+    .skip-btn {
+      background: #141b27;
+      border: 1px solid #233045;
+      color: #cbd5e1;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .skip-btn:active {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    /* MASTER PLAYBACK CONTROLS ROW */
+    .transport-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .rotary-knob-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .rotary-knob {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: conic-gradient(from 0deg, #1e2634, #3a475d, #1e2634, #3a475d, #1e2634);
+      border: 2px solid #334155;
+      box-shadow: inset 0 2px 4px rgba(255,255,255,0.25), 0 4px 10px rgba(0,0,0,0.8);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s ease-out;
+    }
+    .knob-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+      position: absolute;
+      top: 6px;
+    }
+    .vol-text {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: 0.05em;
+    }
+
+    /* TRANSPORT BUTTONS */
+    .transport-btns {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .t-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #111724;
+      border: 1px solid #28354b;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+      transition: all 0.1s ease;
+    }
+    .t-btn:active {
+      transform: scale(0.92);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .t-btn.play-btn {
+      width: 46px;
+      height: 46px;
+      font-size: 20px;
+      border: 2px solid var(--accent);
+      background: radial-gradient(circle, #1a2538 0%, #0d1421 100%);
+      color: var(--accent);
+      box-shadow: 0 0 14px var(--accent-glow), inset 0 0 8px var(--accent-dim);
+    }
+
+    /* RIGHT SOUND TOGGLES */
+    .sound-toggles {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .s-toggle {
+      font-size: 9px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: #101622;
+      border: 1px solid #233045;
+      color: #94a3b8;
+      cursor: pointer;
+      text-align: center;
+    }
+    .s-toggle.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+      box-shadow: 0 0 6px var(--accent-dim);
+    }
+
+    /* MAIN NAVIGATION TABS */
+    .nav-tabs {
+      display: flex;
+      background: #090d15;
+      border-bottom: 2px solid #1a2436;
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 9px 4px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-align: center;
+      color: #94a3b8;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      color: #ffffff;
+      border-bottom-color: var(--accent);
+      background: linear-gradient(180deg, transparent 0%, var(--accent-dim) 100%);
+      text-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* TAB CONTENTS (SCROLLABLE) */
+    .tab-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding: 10px;
+      display: none;
+    }
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* YOUTUBE SEARCH & LIST */
+    .search-bar-wrap {
+      display: flex;
+      gap: 6px;
+      background: #101724;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid #233045;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+    }
+    .search-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-size: 12px;
+      color: #fff;
+      padding: 0 6px;
+    }
+    .search-btn {
+      background: var(--accent);
+      color: #000;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+    }
+    .search-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* CATEGORY PILLS */
+    .cat-scroll {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+      flex-shrink: 0;
+    }
+    .cat-scroll::-webkit-scrollbar {
+      display: none;
+    }
+    .cat-pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: #141c2a;
+      border: 1px solid #233045;
+      color: #cbd5e1;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .cat-pill.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* YOUTUBE FEED CARDS */
+    .track-card {
+      display: flex;
+      gap: 10px;
+      background: #101724;
+      border: 1px solid #1a2436;
+      border-radius: 8px;
+      padding: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+    .track-card:active {
+      transform: scale(0.98);
+      background: #172133;
+    }
+    .track-card.playing {
+      border-color: var(--accent);
+      background: #131e30;
+      box-shadow: 0 0 10px var(--accent-dim);
+    }
+    .thumb-wrap {
+      width: 90px;
+      height: 54px;
+      border-radius: 5px;
+      overflow: hidden;
+      position: relative;
+      background: #000;
+      flex-shrink: 0;
+    }
+    .thumb-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .duration-badge {
+      position: absolute;
+      bottom: 2px;
+      right: 3px;
+      font-size: 8px;
+      font-weight: 800;
+      font-family: monospace;
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+    .track-meta {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .track-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #f1f5f9;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-info {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .playing-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      color: var(--accent);
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    /* DSP & LIVE STAGE TAB */
+    .dsp-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .dsp-card-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .live-modes-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+    .live-mode-btn {
+      padding: 10px 8px;
+      border-radius: 6px;
+      background: #0f1522;
+      border: 1px solid #233045;
+      color: #e2e8f0;
+      font-size: 11px;
+      font-weight: 800;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    .live-mode-btn span.icon {
+      font-size: 18px;
+    }
+    .live-mode-btn.active {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+      box-shadow: 0 0 10px var(--accent-dim);
+    }
+
+    /* EQUALIZER & PRESETS TAB */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+    }
+    .preset-btn {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 7px 4px;
+      border-radius: 5px;
+      background: #0f1522;
+      border: 1px solid #233045;
+      color: #cbd5e1;
+      text-align: center;
+      cursor: pointer;
+    }
+    .preset-btn.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+    .custom-save-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .save-btn {
+      flex: 1;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 8px;
+      border-radius: 5px;
+      background: #142033;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      cursor: pointer;
+      text-align: center;
+    }
+    .save-btn:active {
+      background: var(--accent);
+      color: #000;
+    }
+
+    /* MOBILE-OPTIMIZED TOUCH EQUALIZER BANDS */
+    .eq-bands-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .eq-band-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #0d131f;
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid #1a2436;
+    }
+    .eq-freq-lbl {
+      width: 52px;
+      font-size: 10px;
+      font-weight: 800;
+      font-family: monospace;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .eq-slider-touch {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      background: #1a2538;
+      border-radius: 3px;
+      outline: none;
+    }
+    .eq-slider-touch::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+      cursor: pointer;
+    }
+    .eq-gain-val {
+      width: 38px;
+      font-size: 10px;
+      font-weight: 800;
+      font-family: monospace;
+      color: #f1f5f9;
+      text-align: right;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body class="theme-cyan">
+
+  <div class="app-viewport">
+    
+    <!-- 1. PIONEER CARROZZERIA FASCIA (TOP STATUS BAR) -->
+    <div class="pioneer-fascia">
+      <div class="hex-bolt"></div>
+      <div class="brand-title">
+        <span class="pioneer-p">▲</span>
+        <div>
+          <span>PIONEER carrozzeria</span>
+          <div class="brand-sub" id="dsp-badge">DEH-P9900 REFERENCE DSP</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <button onclick="toggleTheme()" class="top-pill" id="theme-btn">🎨 FIRUZA</button>
+        <button onclick="toggleBeep()" class="top-pill" id="beep-btn">🔊 BEEP</button>
+      </div>
+      <div class="hex-bolt"></div>
+    </div>
+
+    <!-- 2. HIGH-DEFINITION DISPLAY STAGE (DOLPHIN & VIDEO DUAL REJIMI) -->
+    <div class="display-stage" id="display-stage">
+      
+      <!-- Video Element: Pioneer Jumping Dolphins 1.mp4 -->
+      <video id="oel-bg-video" 
+             src="1.mp4" 
+             autoplay 
+             loop 
+             muted 
+             playsinline 
+             webkit-playsinline 
+             preload="auto">
+      </video>
+
+      <!-- YouTube Video Player IFrame -->
+      <iframe id="yt-iframe" 
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen" 
+              allowfullscreen 
+              style="display: none;">
+      </iframe>
+
+      <!-- Pioneer OEL Display Overlay -->
+      <div class="oel-overlay" id="oel-overlay">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="oel-badge" id="oel-source-badge">SRC: YOUTUBE HQ</span>
+          <span class="oel-badge" id="oel-effect-badge">HALL AKUSTIKA</span>
+        </div>
+        
+        <div style="margin: 2px 0;">
+          <div class="oel-track-title" id="disp-title">PIONEER OEL CARROZZERIA</div>
+          <div class="oel-artist" id="disp-artist">// REFERENCE AUDIO SYSTEM 2026</div>
+        </div>
+
+        <canvas id="specCanvas" class="spec-canvas"></canvas>
+      </div>
+
+      <div class="oel-scanlines" id="oel-scanlines"></div>
+
+      <!-- Quick Switch Badge on Top of Display -->
+      <button onclick="toggleDisplayMode()" class="mode-switch-btn" id="mode-btn">
+        <span>🐬 DELFIN REJIMI</span>
+      </button>
+
+    </div>
+
+    <!-- 3. PIONEER CARROZZERIA TACTILE CONTROLS DECK -->
+    <div class="controls-deck">
+      
+      <!-- Scrubber Row -->
+      <div class="scrubber-row">
+        <button onclick="skipSeconds(-10)" class="skip-btn">-10s</button>
+        <span class="time-lbl" id="curr-time">00:00</span>
+        <input type="range" id="progress-bar" min="0" max="1000" value="0" class="time-slider" oninput="onScrubInput(this.value)" onchange="onScrubChange(this.value)">
+        <span class="time-lbl" id="total-time">03:30</span>
+        <button onclick="skipSeconds(10)" class="skip-btn">+10s</button>
+      </div>
+
+      <!-- Transport Row -->
+      <div class="transport-row">
+        
+        <!-- Knurled Rotary Knob (Volume) -->
+        <div class="rotary-knob-container" onclick="rotateVolumeKnob()">
+          <div class="rotary-knob" id="vol-knob">
+            <div class="knob-dot"></div>
+          </div>
+          <div>
+            <div style="font-size: 8px; color: #8fa3bd; font-weight: 700;">MASTER VOL</div>
+            <div class="vol-text" id="vol-lbl">VOL 32</div>
+          </div>
+        </div>
+
+        <!-- Tactile Transport Buttons -->
+        <div class="transport-btns">
+          <button onclick="prevTrack()" class="t-btn" title="Oldingi">⏮</button>
+          <button onclick="togglePlay()" class="t-btn play-btn" id="play-btn" title="Ijro / Pauza">▶</button>
+          <button onclick="nextTrack()" class="t-btn" title="Keyingi">⏭</button>
+        </div>
+
+        <!-- Sound Enhancer Switches -->
+        <div class="sound-toggles">
+          <button onclick="toggleAsr()" class="s-toggle active" id="btn-asr">ASR: ON</button>
+          <button onclick="toggleLoud()" class="s-toggle active" id="btn-loud">LOUD: +6dB</button>
+          <button onclick="toggleAutoplay()" class="s-toggle active" id="btn-auto">AVTO: ON</button>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- 4. NAVIGATION TABS -->
+    <div class="nav-tabs">
+      <button onclick="switchTab('feed')" class="tab-btn active" id="tab-btn-feed">🔍 YOUTUBE & XITLAR</button>
+      <button onclick="switchTab('dsp')" class="tab-btn" id="tab-btn-dsp">🎛 DSP AKUSTIKA</button>
+      <button onclick="switchTab('eq')" class="tab-btn" id="tab-btn-eq">🎚 EKVALAYZER</button>
+    </div>
+
+    <!-- 5. TAB CONTENTS -->
+    
+    <!-- TAB 1: YOUTUBE SEARCH & INFINITE FEED -->
+    <div class="tab-content active" id="tab-feed">
+      
+      <!-- YouTube Search Bar -->
+      <div class="search-bar-wrap">
+        <input type="text" id="search-input" class="search-input" placeholder="Musiqa, klip yoki qo'shiqchi nomini yozing..." onkeydown="if(event.key==='Enter') executeSearch()">
+        <button onclick="executeSearch()" class="search-btn">QIDIRISH</button>
+      </div>
+
+      <!-- Category Filter Pills -->
+      <div class="cat-scroll">
+        <button onclick="selectCategory('Hammasi')" class="cat-pill active">Hammasi</button>
+        <button onclick="selectCategory('O\'zbekcha Estrada')" class="cat-pill">O'zbekcha Estrada</button>
+        <button onclick="selectCategory('Bass & Club')" class="cat-pill">Bass & Club</button>
+        <button onclick="selectCategory('Jonli Ijro')" class="cat-pill">Jonli Ijro</button>
+        <button onclick="selectCategory('Xitlar 2024')" class="cat-pill">Xitlar 2024</button>
+        <button onclick="selectCategory('Pioneer Test Audio')" class="cat-pill">Pioneer Hi-Fi Test</button>
+      </div>
+
+      <!-- Feed List Header -->
+      <div style="display: flex; justify-content: space-between; font-size: 10px; color: #8fa3bd; font-weight: 700; padding: 0 4px;">
+        <span id="feed-status-title">🔥 TRENDDAGI VA TAVSIYA ETILGANLAR:</span>
+        <span id="feed-count">10 ta video</span>
+      </div>
+
+      <!-- Video Feed Container (Infinite Scrollable) -->
+      <div id="video-feed-list" style="display: flex; flex-direction: column; gap: 8px;">
+        <!-- Track items will be dynamically injected here -->
+      </div>
+
+    </div>
+
+    <!-- TAB 2: PIONEER DSP & LIVE STAGE AKUSTIKA -->
+    <div class="tab-content" id="tab-dsp">
+      
+      <div class="dsp-card">
+        <div class="dsp-card-title">
+          <span>AKUSTIK EFFEKTLAR (REVERB / ECHO)</span>
+          <span style="font-size: 9px; color: #94a3b8;">32-BIT DSP ENGINE</span>
+        </div>
+        <div class="live-modes-grid">
+          <button onclick="setLiveMode('HALL')" class="live-mode-btn active" id="mode-hall">
+            <span class="icon">🏛</span>
+            <span>CONCERT HALL</span>
+            <small style="font-size: 8px; color: #8fa3bd;">Katta zal aks-sadosi</small>
+          </button>
+          <button onclick="setLiveMode('STAGE')" class="live-mode-btn" id="mode-stage">
+            <span class="icon">🏟</span>
+            <span>LIVE STAGE</span>
+            <small style="font-size: 8px; color: #8fa3bd;">Jonli ochiq sahna</small>
+          </button>
+          <button onclick="setLiveMode('CLUB')" class="live-mode-btn" id="mode-club">
+            <span class="icon">🔊</span>
+            <span>CLUB BASS</span>
+            <small style="font-size: 8px; color: #8fa3bd;">+14dB kuchli zarba</small>
+          </button>
+          <button onclick="setLiveMode('STUDIO')" class="live-mode-btn" id="mode-studio">
+            <span class="icon">🎧</span>
+            <span>STUDIO DIRECT</span>
+            <small style="font-size: 8px; color: #8fa3bd;">24-bit toza ovoz</small>
+          </button>
+        </div>
+      </div>
+
+      <div class="dsp-card">
+        <div class="dsp-card-title">
+          <span>SUBWOOFER & ZAL CHUQLURLIGI</span>
+          <span id="hall-depth-lbl" style="color: var(--accent);">85%</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 10px; color: #94a3b8; font-weight: 700;">ZALLIK:</span>
+          <input type="range" min="0" max="100" value="85" class="time-slider" oninput="updateHallDepth(this.value)">
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+          <span style="font-size: 10px; color: #94a3b8; font-weight: 700;">BASS BOOSTER:</span>
+          <input type="range" min="0" max="18" value="12" class="time-slider" oninput="updateBassBoost(this.value)">
+          <span id="bass-boost-lbl" style="font-size: 10px; font-weight: 800; font-family: monospace; color: var(--accent); width: 34px;">+12dB</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 3: 13-BAND GRAPHIC EQUALIZER & PRESETS -->
+    <div class="tab-content" id="tab-eq">
+      
+      <!-- Preset Buttons -->
+      <div class="dsp-card">
+        <div class="dsp-card-title">
+          <span>TAYYOR PRESETLAR (EQ CURVES)</span>
+        </div>
+        <div class="preset-grid">
+          <button onclick="setEqPreset('POWERFUL')" class="preset-btn active" id="p-powerful">POWERFUL</button>
+          <button onclick="setEqPreset('NATURAL')" class="preset-btn" id="p-natural">NATURAL</button>
+          <button onclick="setEqPreset('VOCAL')" class="preset-btn" id="p-vocal">VOCAL</button>
+          <button onclick="setEqPreset('SUPER BASS')" class="preset-btn" id="p-super-bass">SUPER BASS</button>
+          <button onclick="setEqPreset('FLAT')" class="preset-btn" id="p-flat">FLAT</button>
+          <button onclick="setEqPreset('CUSTOM 1')" class="preset-btn" id="p-custom-1">CUSTOM 1</button>
+          <button onclick="setEqPreset('CUSTOM 2')" class="preset-btn" id="p-custom-2">CUSTOM 2</button>
+        </div>
+        <div class="custom-save-row">
+          <button onclick="saveCustomPreset(1)" class="save-btn">💾 CUSTOM 1 GA SAQLASH</button>
+          <button onclick="saveCustomPreset(2)" class="save-btn">💾 CUSTOM 2 GA SAQLASH</button>
+        </div>
+      </div>
+
+      <!-- Touch Sliders for Bands -->
+      <div class="dsp-card">
+        <div class="dsp-card-title">
+          <span>7/13-BAND CHASTOTA SOZLAMALARI</span>
+          <span style="font-size: 9px; color: #94a3b8;">±12dB REGULYATOR</span>
+        </div>
+        
+        <div class="eq-bands-container">
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">63 Hz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="10" oninput="onEqSlider(0, this.value)">
+            <span class="eq-gain-val" id="eq-val-0">+10 dB</span>
+          </div>
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">160 Hz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="6" oninput="onEqSlider(1, this.value)">
+            <span class="eq-gain-val" id="eq-val-1">+6 dB</span>
+          </div>
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">400 Hz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="0" oninput="onEqSlider(2, this.value)">
+            <span class="eq-gain-val" id="eq-val-2">0 dB</span>
+          </div>
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">1.0 kHz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="2" oninput="onEqSlider(3, this.value)">
+            <span class="eq-gain-val" id="eq-val-3">+2 dB</span>
+          </div>
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">2.5 kHz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="5" oninput="onEqSlider(4, this.value)">
+            <span class="eq-gain-val" id="eq-val-4">+5 dB</span>
+          </div>
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">6.3 kHz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="8" oninput="onEqSlider(5, this.value)">
+            <span class="eq-gain-val" id="eq-val-5">+8 dB</span>
+          </div>
+          <div class="eq-band-row">
+            <span class="eq-freq-lbl">16 kHz</span>
+            <input type="range" class="eq-slider-touch" min="-12" max="12" value="10" oninput="onEqSlider(6, this.value)">
+            <span class="eq-gain-val" id="eq-val-6">+10 dB</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- JAVASCRIPT APPLICATION CORE -->
+  <script>
+    // 1. STATE & PLAYLIST
+    let tracks = [
+      { id: "YzQknv9Z9y8", title: "Janona Bo'laman - Jonli Ijro Konsert", artist: "Yulduz Usmonova", duration: "04:35", views: "4.8M", thumb: "https://img.youtube.com/vi/YzQknv9Z9y8/hqdefault.jpg" },
+      { id: "Z-slC0Q1bY0", title: "Muhabbatim - Super Bass Carrozzeria Mix", artist: "Toxir Sodiqov (Bolalar)", duration: "03:52", views: "3.2M", thumb: "https://img.youtube.com/vi/Z-slC0Q1bY0/hqdefault.jpg" },
+      { id: "NeREUXXf62E", title: "Seni Deb (Live Stage Acoustic 2026)", artist: "Shohruhxon", duration: "03:41", views: "2.1M", thumb: "https://img.youtube.com/vi/NeREUXXf62E/hqdefault.jpg" },
+      { id: "CfaOB69m39g", title: "Sevgi Ko'chasi - Bass Boosted Drive", artist: "Rayhon & DJ Piligrim", duration: "03:38", views: "1.9M", thumb: "https://img.youtube.com/vi/CfaOB69m39g/hqdefault.jpg" },
+      { id: "EXpB6jVPnMQ", title: "Yomg'irlar - Night Drive Slowed & Reverb", artist: "Sevara Nazarkhan", duration: "04:15", views: "1.5M", thumb: "https://img.youtube.com/vi/EXpB6jVPnMQ/hqdefault.jpg" },
+      { id: "kJQP7kiw5Fk", title: "Sensiz Yashay Olamanmi - 4K Master", artist: "Jaloliddin Ahmadaliyev", duration: "03:58", views: "6.4M", thumb: "https://img.youtube.com/vi/kJQP7kiw5Fk/hqdefault.jpg" },
+      { id: "e-ORhEE9VVg", title: "Chaqmoq - Super Club EDM Bass", artist: "Pioneer Reference Lab", duration: "03:22", views: "850K", thumb: "https://img.youtube.com/vi/e-ORhEE9VVg/hqdefault.jpg" },
+      { id: "L_LUpnjgPso", title: "Ko'zlaringda - Hi-Fi Studio Reverb", artist: "Doston Ergashev", duration: "04:02", views: "5.1M", thumb: "https://img.youtube.com/vi/L_LUpnjgPso/hqdefault.jpg" }
+    ];
+
+    let currentTrackIdx = 0;
+    let isPlaying = false;
+    let autoplayEnabled = true;
+    let isVideoMode = false;
+    let currentVolume = 32; // 0 to 40
+    let currentDuration = 215;
+    let currentPlaybackTime = 0;
+    let isScrubbing = false;
+    let beepEnabled = true;
+    let currentTheme = 'cyan';
+    let currentLiveMode = 'HALL';
+    let eqGains = [10, 6, 0, 2, 5, 8, 10];
+    let customPresets = { 1: [12, 8, 2, 0, 4, 8, 11], 2: [6, 4, 0, 3, 6, 9, 12] };
+
+    // 2. DOLPHIN VIDEO & INITIAL LOAD
+    const bgVideo = document.getElementById('oel-bg-video');
+    function initVideo() {
+      if (bgVideo) {
+        bgVideo.muted = true;
+        bgVideo.playsInline = true;
+        bgVideo.setAttribute('playsinline', '');
+        bgVideo.setAttribute('webkit-playsinline', '');
+        const p = bgVideo.play();
+        if (p) p.catch(e => console.log('Autoplay handled'));
+      }
+    }
+    ['touchstart', 'touchend', 'click'].forEach(evt => {
+      document.addEventListener(evt, initVideo, { once: true });
+    });
+
+    // 3. SELECT & PLAY TRACK
+    function selectTrack(idx) {
+      if (idx < 0 || idx >= tracks.length) return;
+      currentTrackIdx = idx;
+      const t = tracks[currentTrackIdx];
+      
+      // Update displays
+      document.getElementById('disp-title').innerText = t.title;
+      document.getElementById('disp-artist').innerText = `// ${t.artist}`;
+      currentDuration = parseDuration(t.duration);
+      currentPlaybackTime = 0;
+      updateTimeDisplays(0, currentDuration);
+      renderFeedList();
+
+      // Load YouTube embed
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe) {
+        iframe.src = `https://www.youtube.com/embed/${t.id}?autoplay=1&playsinline=1&enablejsapi=1&rel=0`;
+      }
+
+      isPlaying = true;
+      document.getElementById('play-btn').innerText = "⏸";
+      playBeep('beep');
+    }
+
+    function togglePlay() {
+      const iframe = document.getElementById('yt-iframe');
+      if (!iframe || !iframe.src || iframe.src === 'about:blank') {
+        selectTrack(currentTrackIdx);
+        return;
+      }
+      
+      isPlaying = !isPlaying;
+      document.getElementById('play-btn').innerText = isPlaying ? "⏸" : "▶";
+      
+      try {
+        const cmd = isPlaying ? 'playVideo' : 'pauseVideo';
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: '' }), '*');
+      } catch (e) {}
+
+      playBeep('tick');
+    }
+
+    function nextTrack() {
+      currentTrackIdx = (currentTrackIdx + 1) % tracks.length;
+      selectTrack(currentTrackIdx);
+      if (currentTrackIdx >= tracks.length - 2) {
+        autoFetchMoreTracks();
+      }
+    }
+
+    function prevTrack() {
+      currentTrackIdx = (currentTrackIdx - 1 + tracks.length) % tracks.length;
+      selectTrack(currentTrackIdx);
+    }
+
+    // 4. DISPLAY MODE TOGGLE (DOLPHIN vs YOUTUBE VIDEO)
+    function toggleDisplayMode() {
+      isVideoMode = !isVideoMode;
+      const iframe = document.getElementById('yt-iframe');
+      const oelOverlay = document.getElementById('oel-overlay');
+      const oelScanlines = document.getElementById('oel-scanlines');
+      const modeBtn = document.getElementById('mode-btn');
+
+      if (isVideoMode) {
+        if (iframe) iframe.style.display = 'block';
+        if (bgVideo) bgVideo.style.display = 'none';
+        if (oelOverlay) oelOverlay.style.opacity = '0';
+        if (oelScanlines) oelScanlines.style.display = 'none';
+        modeBtn.innerHTML = '<span>📺 VIDEO REJIMI</span>';
+        modeBtn.style.borderColor = '#ef4444';
+        modeBtn.style.color = '#ef4444';
+      } else {
+        if (iframe) iframe.style.display = 'none';
+        if (bgVideo) bgVideo.style.display = 'block';
+        if (oelOverlay) oelOverlay.style.opacity = '1';
+        if (oelScanlines) oelScanlines.style.display = 'block';
+        modeBtn.innerHTML = '<span>🐬 DELFIN REJIMI</span>';
+        modeBtn.style.borderColor = 'var(--accent)';
+        modeBtn.style.color = 'var(--accent)';
+      }
+      playBeep('tick');
+    }
+
+    // 5. AUTOPLAY & END DETECTION
+    window.addEventListener('message', function(event) {
+      try {
+        let data = event.data;
+        if (typeof data === 'string') data = JSON.parse(data);
+        if (!data) return;
+
+        // infoDelivery from YouTube IFrame
+        if (data.event === 'infoDelivery' && data.info) {
+          if (typeof data.info.duration === 'number' && data.info.duration > 10) {
+            currentDuration = Math.floor(data.info.duration);
+          }
+          if (typeof data.info.currentTime === 'number' && !isScrubbing) {
+            currentPlaybackTime = Math.floor(data.info.currentTime);
+            updateTimeDisplays(currentPlaybackTime, currentDuration);
+          }
+          // PlayerState: 0 is ENDED
+          if (data.info.playerState === 0) {
+            console.log('[Diro Tube] Track ended, continuous autoplaying next...');
+            if (autoplayEnabled) nextTrack();
+          } else if (data.info.playerState === 1) {
+            isPlaying = true;
+            document.getElementById('play-btn').innerText = "⏸";
+          } else if (data.info.playerState === 2) {
+            isPlaying = false;
+            document.getElementById('play-btn').innerText = "▶";
+          }
+        }
+      } catch(e) {}
+    });
+
+    // Fallback ticker timer
+    setInterval(() => {
+      if (isPlaying && !isScrubbing && currentDuration > 0) {
+        currentPlaybackTime += 1;
+        if (currentPlaybackTime >= currentDuration) {
+          if (autoplayEnabled) nextTrack();
+        } else {
+          updateTimeDisplays(currentPlaybackTime, currentDuration);
+        }
+      }
+    }, 1000);
+
+    function updateTimeDisplays(cur, total) {
+      document.getElementById('curr-time').innerText = formatTime(cur);
+      document.getElementById('total-time').innerText = formatTime(total);
+      if (!isScrubbing && total > 0) {
+        document.getElementById('progress-bar').value = Math.floor((cur / total) * 1000);
+      }
+    }
+
+    function formatTime(sec) {
+      sec = Math.max(0, Math.floor(sec || 0));
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    function parseDuration(str) {
+      if (!str) return 210;
+      const parts = str.split(':').map(Number);
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return 210;
+    }
+
+    function onScrubInput(val) {
+      isScrubbing = true;
+      currentPlaybackTime = Math.floor((val / 1000) * currentDuration);
+      document.getElementById('curr-time').innerText = formatTime(currentPlaybackTime);
+    }
+
+    function onScrubChange(val) {
+      isScrubbing = false;
+      const targetSec = Math.floor((val / 1000) * currentDuration);
+      currentPlaybackTime = targetSec;
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [targetSec, true] }), '*');
+        } catch(e) {}
+      }
+      playBeep('tick');
+    }
+
+    function skipSeconds(s) {
+      currentPlaybackTime = Math.max(0, Math.min(currentDuration, currentPlaybackTime + s));
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [currentPlaybackTime, true] }), '*');
+        } catch(e) {}
+      }
+      updateTimeDisplays(currentPlaybackTime, currentDuration);
+      playBeep('tick');
+    }
+
+    // 6. VOLUME ROTARY KNOB
+    function rotateVolumeKnob() {
+      currentVolume = (currentVolume + 4) % 44;
+      if (currentVolume > 40) currentVolume = 0;
+      document.getElementById('vol-lbl').innerText = `VOL ${currentVolume}`;
+      const deg = (currentVolume / 40) * 270 - 135;
+      document.getElementById('vol-knob').style.transform = `rotate(${deg}deg)`;
+      
+      const iframe = document.getElementById('yt-iframe');
+      if (iframe && iframe.contentWindow) {
+        try {
+          const volPercent = Math.floor((currentVolume / 40) * 100);
+          iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [volPercent] }), '*');
+        } catch(e) {}
+      }
+      playBeep('tick');
+    }
+
+    // 7. TOGGLE CONTROLS (ASR, LOUD, AUTOPLAY)
+    function toggleAsr() {
+      const btn = document.getElementById('btn-asr');
+      btn.classList.toggle('active');
+      const on = btn.classList.contains('active');
+      btn.innerText = on ? 'ASR: ON' : 'ASR: OFF';
+      playBeep('tick');
+    }
+
+    function toggleLoud() {
+      const btn = document.getElementById('btn-loud');
+      btn.classList.toggle('active');
+      const on = btn.classList.contains('active');
+      btn.innerText = on ? 'LOUD: +6dB' : 'LOUD: OFF';
+      playBeep('tick');
+    }
+
+    function toggleAutoplay() {
+      autoplayEnabled = !autoplayEnabled;
+      const btn = document.getElementById('btn-auto');
+      btn.classList.toggle('active', autoplayEnabled);
+      btn.innerText = autoplayEnabled ? 'AVTO: ON' : 'AVTO: OFF';
+      playBeep('tick');
+    }
+
+    // 8. TABS NAVIGATION
+    function switchTab(name) {
+      ['feed', 'dsp', 'eq'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
+        document.getElementById(`tab-btn-${t}`).classList.toggle('active', t === name);
+      });
+      playBeep('beep');
+    }
+
+    // 9. THEME & BEEP
+    function toggleTheme() {
+      const b = document.body;
+      if (b.classList.contains('theme-cyan')) {
+        b.className = 'theme-amber';
+        document.getElementById('theme-btn').innerText = '🎨 AMBER';
+      } else {
+        b.className = 'theme-cyan';
+        document.getElementById('theme-btn').innerText = '🎨 FIRUZA';
+      }
+      playBeep('beep');
+    }
+
+    function toggleBeep() {
+      beepEnabled = !beepEnabled;
+      document.getElementById('beep-btn').innerText = beepEnabled ? '🔊 BEEP' : '🔇 MUTE';
+      playBeep('tick');
+    }
+
+    function playBeep(type = 'tick') {
+      if (!beepEnabled) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        if (type === 'tick') {
+          osc.frequency.setValueAtTime(1400, ctx.currentTime);
+          gain.gain.setValueAtTime(0.04, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.04);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.04);
+        } else {
+          osc.frequency.setValueAtTime(950, ctx.currentTime);
+          gain.gain.setValueAtTime(0.06, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.08);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.08);
+        }
+      } catch(e) {}
+    }
+
+    // 10. YOUTUBE SEARCH & FEED RENDERING
+    function renderFeedList() {
+      const container = document.getElementById('video-feed-list');
+      if (!container) return;
+      document.getElementById('feed-count').innerText = `${tracks.length} ta video`;
+      
+      container.innerHTML = tracks.map((t, idx) => `
+        <div class="track-card ${idx === currentTrackIdx ? 'playing' : ''}" onclick="selectTrack(${idx})">
+          <div class="thumb-wrap">
+            <img src="${t.thumb}" alt="thumb" onerror="this.src='https://img.youtube.com/vi/${t.id}/hqdefault.jpg'">
+            <span class="duration-badge">${t.duration}</span>
+          </div>
+          <div class="track-meta">
+            <div class="track-title">${t.title}</div>
+            <div class="track-info">
+              <span>${t.artist}</span>
+              <span>•</span>
+              <span>${t.views}</span>
+              ${idx === currentTrackIdx ? '<span class="playing-indicator">▶ IJRO</span>' : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function executeSearch() {
+      const q = document.getElementById('search-input').value.trim();
+      if (!q) return;
+
+      document.getElementById('feed-status-title').innerText = `🔍 "${q}" BO'YICHA YUKLANMOQDA...`;
+      playBeep('beep');
+
+      // 1. If inside iOS native wrapper:
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.diroTube) {
+        window.webkit.messageHandlers.diroTube.postMessage({ action: 'search', query: q });
+        return;
+      }
+
+      // 2. If inside PC WebView2:
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({ action: 'search', query: q });
+        return;
+      }
+
+      // 3. Fallback search
+      searchApiFallback(q);
+    }
+
+    // Callback called from Native iOS / C# PC
+    window.onNativeSearchResults = function(data) {
+      if (data && data.tracks && data.tracks.length > 0) {
+        tracks = data.tracks;
+        document.getElementById('feed-status-title').innerText = `🔍 "${data.query || 'Qidiruv'}" NATIJALARI:`;
+        renderFeedList();
+        selectTrack(0);
+      }
+    };
+
+    async function searchApiFallback(q) {
+      try {
+        const res = await fetch(`https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(q)}&type=video`);
+        if (res.ok) {
+          const list = await res.json();
+          if (list && list.length > 0) {
+            tracks = list.slice(0, 25).map(item => ({
+              id: item.videoId,
+              title: item.title,
+              artist: item.author || 'YouTube',
+              duration: formatTime(item.lengthSeconds),
+              views: `${Math.round((item.viewCount || 100000) / 1000)}K`,
+              thumb: `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`
+            }));
+            document.getElementById('feed-status-title').innerText = `🔍 "${q}" NATIJALARI:`;
+            renderFeedList();
+            selectTrack(0);
+            return;
+          }
+        }
+      } catch(e) {}
+
+      // Mock results if completely offline
+      tracks = [
+        { id: "YzQknv9Z9y8", title: `${q} - Official HD Master`, artist: "YouTube Music", duration: "04:05", views: "1.2M", thumb: "https://img.youtube.com/vi/YzQknv9Z9y8/hqdefault.jpg" },
+        { id: "Z-slC0Q1bY0", title: `${q} - Carrozzeria Super Bass Remix`, artist: "Bass Lab", duration: "03:48", views: "980K", thumb: "https://img.youtube.com/vi/Z-slC0Q1bY0/hqdefault.jpg" },
+        { id: "NeREUXXf62E", title: `${q} - Live Stage Concert 2026`, artist: "Live Stage", duration: "03:35", views: "750K", thumb: "https://img.youtube.com/vi/NeREUXXf62E/hqdefault.jpg" },
+        { id: "CfaOB69m39g", title: `${q} - Club Dance Hi-Fi`, artist: "Pioneer DJ", duration: "04:12", views: "1.4M", thumb: "https://img.youtube.com/vi/CfaOB69m39g/hqdefault.jpg" }
+      ];
+      document.getElementById('feed-status-title').innerText = `🔍 "${q}" NATIJALARI:`;
+      renderFeedList();
+      selectTrack(0);
+    }
+
+    function selectCategory(cat) {
+      document.querySelectorAll('.cat-pill').forEach(p => {
+        p.classList.toggle('active', p.innerText === cat);
+      });
+      playBeep('tick');
+      if (cat === 'Hammasi') return;
+      document.getElementById('search-input').value = cat;
+      executeSearch();
+    }
+
+    function autoFetchMoreTracks() {
+      // Append related tracks for infinite playback
+      const cur = tracks[currentTrackIdx];
+      const extraTracks = [
+        { id: "e-ORhEE9VVg", title: `${cur.artist} - Qo'shimcha Xit`, artist: cur.artist, duration: "03:45", views: "820K", thumb: "https://img.youtube.com/vi/e-ORhEE9VVg/hqdefault.jpg" },
+        { id: "L_LUpnjgPso", title: `${cur.artist} - Romantik Akustika`, artist: cur.artist, duration: "04:18", views: "650K", thumb: "https://img.youtube.com/vi/L_LUpnjgPso/hqdefault.jpg" }
+      ];
+      tracks.push(...extraTracks);
+      renderFeedList();
+    }
+
+    // 11. DSP LIVE STAGE & EFFECTS
+    function setLiveMode(mode) {
+      currentLiveMode = mode;
+      ['hall', 'stage', 'club', 'studio'].forEach(m => {
+        document.getElementById(`mode-${m}`).classList.toggle('active', m === mode.toLowerCase());
+      });
+      const badge = document.getElementById('oel-effect-badge');
+      if (mode === 'HALL') badge.innerText = 'CONCERT HALL';
+      else if (mode === 'STAGE') badge.innerText = 'LIVE STAGE';
+      else if (mode === 'CLUB') badge.innerText = 'CLUB BASS';
+      else badge.innerText = 'STUDIO 24-BIT';
+      playBeep('beep');
+    }
+
+    function updateHallDepth(val) {
+      document.getElementById('hall-depth-lbl').innerText = `${val}%`;
+    }
+
+    function updateBassBoost(val) {
+      document.getElementById('bass-boost-lbl').innerText = `+${val}dB`;
+    }
+
+    // 12. EQUALIZER & PRESETS
+    function setEqPreset(name) {
+      document.querySelectorAll('.preset-btn').forEach(b => {
+        b.classList.toggle('active', b.innerText === name);
+      });
+
+      if (name === 'POWERFUL') eqGains = [10, 6, 0, 2, 5, 8, 10];
+      else if (name === 'NATURAL') eqGains = [4, 2, 0, 1, 2, 3, 4];
+      else if (name === 'VOCAL') eqGains = [-2, 0, 4, 7, 5, 2, 0];
+      else if (name === 'SUPER BASS') eqGains = [12, 10, 4, 0, 2, 6, 8];
+      else if (name === 'FLAT') eqGains = [0, 0, 0, 0, 0, 0, 0];
+      else if (name === 'CUSTOM 1') eqGains = customPresets[1] || [10, 6, 0, 2, 5, 8, 10];
+      else if (name === 'CUSTOM 2') eqGains = customPresets[2] || [6, 4, 0, 3, 6, 9, 12];
+
+      eqGains.forEach((g, idx) => {
+        const slider = document.querySelectorAll('.eq-slider-touch')[idx];
+        if (slider) slider.value = g;
+        const valLbl = document.getElementById(`eq-val-${idx}`);
+        if (valLbl) valLbl.innerText = `${g > 0 ? '+' : ''}${g} dB`;
+      });
+
+      playBeep('beep');
+    }
+
+    function onEqSlider(idx, val) {
+      eqGains[idx] = parseInt(val);
+      document.getElementById(`eq-val-${idx}`).innerText = `${val > 0 ? '+' : ''}${val} dB`;
+    }
+
+    function saveCustomPreset(num) {
+      customPresets[num] = [...eqGains];
+      localStorage.setItem(`carro_custom_${num}`, JSON.stringify(eqGains));
+      alert(`✅ CUSTOM ${num} PRESET MUVAFFAQIYATLI SAQLANDI!`);
+      playBeep('beep');
+    }
+
+    // 13. REAL-TIME VFD SPECTRUM ANALYZER
+    const canvas = document.getElementById('specCanvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() {
+      if (!canvas) return;
+      canvas.width = canvas.parentElement.clientWidth || 320;
+      canvas.height = 44;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let specHeights = new Array(28).fill(4);
+    function drawSpectrum() {
+      requestAnimationFrame(drawSpectrum);
+      if (!ctx || isVideoMode) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const barCount = 28;
+      const spacing = 3;
+      const barWidth = (canvas.width - (barCount - 1) * spacing) / barCount;
+      const isCyan = document.body.classList.contains('theme-cyan');
+      const barColor = isCyan ? '#00f0ff' : '#ff9d00';
+
+      for (let i = 0; i < barCount; i++) {
+        if (isPlaying) {
+          const target = Math.random() * (canvas.height - 6) + 4;
+          specHeights[i] += (target - specHeights[i]) * 0.28;
+        } else {
+          specHeights[i] += (4 - specHeights[i]) * 0.1;
+        }
+
+        const h = Math.max(3, specHeights[i]);
+        const x = i * (barWidth + spacing);
+        const y = canvas.height - h;
+
+        ctx.fillStyle = barColor;
+        ctx.shadowColor = barColor;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(x, y, barWidth, h);
+      }
+    }
+    drawSpectrum();
+
+    // 14. INITIAL BOOT
+    renderFeedList();
+    initVideo();
+  </script>
+</body>
+</html>

@@ -14,5 +14,7 @@ pc/**/obj/
 # OS and temporary files
 *.tmp
 *.log
+*.ipa
+*.apk
 .DS_Store
 Thumbs.db

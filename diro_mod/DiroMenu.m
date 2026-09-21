@@ -3,23 +3,9 @@
 #import <mach-o/dyld.h>
 #import <objc/runtime.h>
 
-// Forward full interfaces
-@interface DiroFloatingButton : UIView
-@end
+@class DiroFloatingButton;
+@class DiroMenuModal;
 
-@interface DiroMenuModal : UIView <UITextFieldDelegate>
-- (void)toggleVisibility;
-- (void)showToast:(NSString *)message;
-- (void)refreshCheatsList;
-@end
-
-@interface DiroWindow : UIWindow
-@end
-
-@interface DiroRootViewController : UIViewController
-@end
-
-static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
 
@@ -257,83 +243,18 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 // -----------------------------------------------------------------------------
-// DiroWindow: Transparent overlay window that passes touches through to the game
+// DiroFloatingButton: Movable circular button directly added to game window
 // -----------------------------------------------------------------------------
-@implementation DiroWindow
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (self) {
-        self.backgroundColor = [UIColor clearColor];
-        self.windowLevel = UIWindowLevelStatusBar + 100.0;
-        self.userInteractionEnabled = YES;
-    }
-    return self;
-}
-
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000
-- (instancetype)initWithWindowScene:(UIWindowScene *)windowScene API_AVAILABLE(ios(13.0)) {
-    self = [super initWithWindowScene:windowScene];
-    if (self) {
-        self.backgroundColor = [UIColor clearColor];
-        self.windowLevel = UIWindowLevelStatusBar + 100.0;
-        self.userInteractionEnabled = YES;
-    }
-    return self;
-}
-#endif
-
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    UIView *hitView = [super hitTest:point withEvent:event];
-    if (hitView == self || hitView == self.rootViewController.view) {
-        return nil; // Pass touches through to GTA SA game!
-    }
-    return hitView;
-}
+@interface DiroFloatingButton : UIView
 @end
 
-// -----------------------------------------------------------------------------
-// DiroRootViewController: Handles landscape orientation and responsive layout
-// -----------------------------------------------------------------------------
-@implementation DiroRootViewController
-- (BOOL)shouldAutorotate {
-    return YES;
-}
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-    return UIInterfaceOrientationMaskAll;
-}
-- (BOOL)prefersStatusBarHidden {
-    return YES;
-}
-
-- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
-    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
-    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext>  _Nonnull context) {
-        if (g_floatingButton) {
-            CGRect f = g_floatingButton.frame;
-            CGFloat minMargin = 12.0;
-            CGFloat targetX = (f.origin.x > size.width / 2.0) ? (size.width - f.size.width - minMargin) : minMargin;
-            CGFloat targetY = MIN(MAX(f.origin.y, 20.0), size.height - f.size.height - 20.0);
-            g_floatingButton.frame = CGRectMake(targetX, targetY, f.size.width, f.size.height);
-        }
-        if (g_menuModal) {
-            CGFloat mw = MIN(380.0, size.width - 24.0);
-            CGFloat mh = MIN(290.0, size.height - 24.0);
-            g_menuModal.frame = CGRectMake((size.width - mw) / 2.0, (size.height - mh) / 2.0, mw, mh);
-        }
-    } completion:nil];
-}
-@end
-
-// -----------------------------------------------------------------------------
-// DiroFloatingButton: Movable circular button with snap-to-edge animation
-// -----------------------------------------------------------------------------
 @implementation DiroFloatingButton
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor colorWithRed:0.09 green:0.09 blue:0.11 alpha:0.95];
         self.layer.cornerRadius = frame.size.width / 2.0;
-        self.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0].CGColor; // Gold
+        self.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0].CGColor;
         self.layer.borderWidth = 2.5;
         self.layer.shadowColor = [UIColor blackColor].CGColor;
         self.layer.shadowOffset = CGSizeMake(0, 4);
@@ -368,7 +289,7 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)handleTap:(UITapGestureRecognizer *)gesture {
     if (g_menuModal) {
-        [g_menuModal toggleVisibility];
+        [g_menuModal performSelector:@selector(toggleVisibility)];
     }
 }
 
@@ -403,7 +324,7 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
 // -----------------------------------------------------------------------------
-@interface DiroMenuModal ()
+@interface DiroMenuModal : UIView <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subTitleLabel;
 @property (nonatomic, strong) UILabel *toastLabel;
@@ -411,6 +332,9 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) NSTimer *toastTimer;
 @property (nonatomic, strong) UITextField *idTextField;
+- (void)toggleVisibility;
+- (void)showToast:(NSString *)message;
+- (void)refreshCheatsList;
 @end
 
 @implementation DiroMenuModal
@@ -432,21 +356,18 @@ static NSString *get_vehicle_name(int modelId) {
         CGFloat w = frame.size.width;
         CGFloat h = frame.size.height;
 
-        // Title
         self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, w - 60, 20)];
         self.titleLabel.text = @"👑 DIRO MOD MENU";
         self.titleLabel.font = [UIFont boldSystemFontOfSize:15];
         self.titleLabel.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
         [self addSubview:self.titleLabel];
 
-        // Subtitle
         self.subTitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 30, w - 60, 14)];
         self.subTitleLabel.text = @"100% Offline • Ro'yxatdan o'tish shart emas";
         self.subTitleLabel.font = [UIFont systemFontOfSize:10];
         self.subTitleLabel.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
         [self addSubview:self.subTitleLabel];
 
-        // Close Button
         UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         closeBtn.frame = CGRectMake(w - 38, 10, 28, 28);
         closeBtn.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1.0];
@@ -457,7 +378,6 @@ static NSString *get_vehicle_name(int modelId) {
         [closeBtn addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:closeBtn];
 
-        // Toast Label
         self.toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(14, 46, w - 28, 18)];
         self.toastLabel.textAlignment = NSTextAlignmentCenter;
         self.toastLabel.font = [UIFont boldSystemFontOfSize:11];
@@ -465,7 +385,6 @@ static NSString *get_vehicle_name(int modelId) {
         self.toastLabel.alpha = 0.0;
         [self addSubview:self.toastLabel];
 
-        // Segmented Control
         NSArray *categories = @[@"⚡ Asosiy", @"🔫 Qurollar", @"⭐ Politsiya", @"🚗 Mashinalar"];
         self.segmentedControl = [[UISegmentedControl alloc] initWithItems:categories];
         self.segmentedControl.frame = CGRectMake(14, 68, w - 28, 28);
@@ -478,7 +397,6 @@ static NSString *get_vehicle_name(int modelId) {
         [self.segmentedControl addTarget:self action:@selector(categoryChanged:) forControlEvents:UIControlEventValueChanged];
         [self addSubview:self.segmentedControl];
 
-        // ScrollView
         CGFloat scrollY = 104;
         CGFloat scrollH = h - scrollY - 8;
         self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(14, scrollY, w - 28, scrollH)];
@@ -486,7 +404,6 @@ static NSString *get_vehicle_name(int modelId) {
         self.scrollView.indicatorStyle = UIScrollViewIndicatorStyleWhite;
         [self addSubview:self.scrollView];
 
-        // Tap outside keyboard dismiss
         UITapGestureRecognizer *bgTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissKeyboard)];
         bgTap.cancelsTouchesInView = NO;
         [self addGestureRecognizer:bgTap];
@@ -522,6 +439,13 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)toggleVisibility {
     [self endEditing:YES];
     if (self.hidden) {
+        UIView *sv = self.superview;
+        if (sv) {
+            CGFloat mw = MIN(380.0, sv.bounds.size.width - 24.0);
+            CGFloat mh = MIN(290.0, sv.bounds.size.height - 24.0);
+            self.frame = CGRectMake((sv.bounds.size.width - mw) / 2.0, (sv.bounds.size.height - mh) / 2.0, mw, mh);
+            [sv bringSubviewToFront:self];
+        }
         self.hidden = NO;
         self.transform = CGAffineTransformMakeScale(0.85, 0.85);
         self.alpha = 0.0;
@@ -599,7 +523,6 @@ static NSString *get_vehicle_name(int modelId) {
         [self.scrollView addSubview:idBar];
         curY += 46.0;
 
-        // Quick Pick Vehicles
         NSArray *vList = @[
             @{@"title": @"🏎️ Infernus (ID: 411)", @"badge": @"SPAWN", @"vid": @(411)},
             @{@"title": @"🏎️ Bullet (ID: 541)", @"badge": @"SPAWN", @"vid": @(541)},
@@ -659,7 +582,6 @@ static NSString *get_vehicle_name(int modelId) {
 
     NSArray *items = nil;
     if (cat == 0) {
-        // Asosiy (Player)
         items = @[
             @{@"title": @"❤️ Cheksiz Jon (God Mode)", @"badge": @"FAOL", @"off": @(0xade84), @"msg": @"✅ Cheksiz Jon (God Mode) faollashtirildi!"},
             @{@"title": @"💰 HESOYAM ($250,000 + Jon + Bronya)", @"badge": @"BERISH", @"off": @(0xad3d4), @"msg": @"✅ $250,000 va Bronya berildi!"},
@@ -668,14 +590,12 @@ static NSString *get_vehicle_name(int modelId) {
             @{@"title": @"⚡ Tez Harakat (Fast Motion)", @"badge": @"FAOL", @"off": @(0xae76c), @"msg": @"✅ Tez harakat faollashtirildi!"}
         ];
     } else if (cat == 1) {
-        // Qurollar (Weapons)
         items = @[
             @{@"title": @"🔫 Qurollar To'plami 1 (Kastet, Bita, Pistol)", @"badge": @"BERISH", @"off": @(0xacc80), @"msg": @"✅ 1-To'plam qurollari berildi!"},
             @{@"title": @"💣 Qurollar To'plami 2 (Deagle, Spas, MP5, M4)", @"badge": @"BERISH", @"off": @(0xacf40), @"msg": @"✅ 2-To'plam qurollari berildi!"},
             @{@"title": @"🚀 Qurollar To'plami 3 (Minigun, Bazuka, Pila)", @"badge": @"BERISH", @"off": @(0xad1c4), @"msg": @"✅ 3-To'plam qurollari berildi!"}
         ];
     } else if (cat == 2) {
-        // Politsiya (Police / Wanted)
         items = @[
             @{@"title": @"🚫 Qidiruvni O'chirish (0 Yulduz)", @"badge": @"QULFLASH", @"off": @(0xadecc), @"msg": @"✅ Qidiruv 0 ga qulflab qo'yildi!"},
             @{@"title": @"⭐ Qidiruvni Pasaytirish (-1 Yulduz)", @"badge": @"PASAYTIRISH", @"off": @(0xad4b8), @"msg": @"✅ Qidiruv 1 darajaga kamaytirildi!"},
@@ -738,16 +658,13 @@ static NSString *get_vehicle_name(int modelId) {
         return;
     }
 
-    // Haptic
     if (@available(iOS 10.0, *)) {
         UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
         [gen prepare];
         [gen impactOccurred];
     }
 
-    // Spawn vehicle by ID
     trigger_vehicle_cheat(vid);
-
     NSString *vName = get_vehicle_name(vid);
     [self showToast:[NSString stringWithFormat:@"✅ Paydo bo'ldi: ID %d (%@)", vid, vName]];
 }
@@ -800,70 +717,95 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// Setup & Dynamic Loading
+// Direct Game Window Attachment (100% Crash-Proof)
 // -----------------------------------------------------------------------------
-static void setup_diro_ui(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            NSLog(@"[DIRO] Launching Diro Mod Menu overlay...");
-            UIWindow *window = nil;
-            if (@available(iOS 13.0, *)) {
-                for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                    if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-                        window = [[DiroWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-                        break;
-                    }
-                }
-            }
-            if (!window) {
-                window = [[DiroWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-            }
-            g_diroWindow = (DiroWindow *)window;
+static void attach_diro_ui_to_game(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *keyWindow = nil;
+        UIApplication *app = [UIApplication sharedApplication];
+        if (!app) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                attach_diro_ui_to_game();
+            });
+            return;
+        }
 
-            DiroRootViewController *vc = [[DiroRootViewController alloc] init];
-            window.rootViewController = vc;
-            window.hidden = NO;
+        keyWindow = app.keyWindow;
+        if (!keyWindow && app.windows.count > 0) {
+            keyWindow = app.windows.firstObject;
+        }
 
-            CGSize sz = [UIScreen mainScreen].bounds.size;
-            CGFloat btnSize = 52.0;
-            CGFloat initialX = 14.0;
-            CGFloat initialY = (sz.height - btnSize) / 2.0;
+        if (!keyWindow) {
+            // Window not ready yet, retry in 0.5s
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                attach_diro_ui_to_game();
+            });
+            return;
+        }
+
+        CGRect b = keyWindow.bounds;
+        if (b.size.width < 50 || b.size.height < 50) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                attach_diro_ui_to_game();
+            });
+            return;
+        }
+
+        // If already added, just bring to front
+        if (g_floatingButton && g_floatingButton.superview == keyWindow) {
+            [keyWindow bringSubviewToFront:g_floatingButton];
+            if (g_menuModal) [keyWindow bringSubviewToFront:g_menuModal];
+            return;
+        }
+
+        NSLog(@"[DIRO] Attaching Diro views to game window (size: %.0f x %.0f)", b.size.width, b.size.height);
+
+        CGFloat btnSize = 52.0;
+        CGFloat initialX = 14.0;
+        CGFloat initialY = (b.size.height - btnSize) / 2.0;
+
+        if (!g_floatingButton) {
             g_floatingButton = [[DiroFloatingButton alloc] initWithFrame:CGRectMake(initialX, initialY, btnSize, btnSize)];
-            [vc.view addSubview:g_floatingButton];
+        }
+        [keyWindow addSubview:g_floatingButton];
+        [keyWindow bringSubviewToFront:g_floatingButton];
 
-            CGFloat mw = MIN(380.0, sz.width - 24.0);
-            CGFloat mh = MIN(290.0, sz.height - 24.0);
-            CGFloat mx = (sz.width - mw) / 2.0;
-            CGFloat my = (sz.height - mh) / 2.0;
+        CGFloat mw = MIN(380.0, b.size.width - 24.0);
+        CGFloat mh = MIN(290.0, b.size.height - 24.0);
+        CGFloat mx = (b.size.width - mw) / 2.0;
+        CGFloat my = (b.size.height - mh) / 2.0;
+
+        if (!g_menuModal) {
             g_menuModal = [[DiroMenuModal alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
             g_menuModal.hidden = YES;
             g_menuModal.alpha = 0.0;
-            [vc.view addSubview:g_menuModal];
+        }
+        [keyWindow addSubview:g_menuModal];
+        [keyWindow bringSubviewToFront:g_menuModal];
 
-            NSLog(@"[DIRO] Diro Mod Menu with Vehicle ID Spawner is 100%% active!");
-        });
+        NSLog(@"[DIRO] Diro UI successfully attached to game window!");
     });
 }
 
+// Constructor: safe initialization
 __attribute__((constructor))
 static void diro_entry(void) {
-    NSLog(@"[DIRO] GTASA.dylib (Diro Mod Menu) successfully loaded!");
+    NSLog(@"[DIRO] GTASA.dylib (Diro Mod Menu) loaded into game!");
 
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
-                                                      object:nil
-                                                       queue:[NSOperationQueue mainQueue]
-                                                  usingBlock:^(NSNotification * _Nonnull note) {
-        setup_diro_ui();
-    }];
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        setup_diro_ui();
+    // Check after 1.5, 3.0, 5.0, 7.0 seconds to guarantee attachment to keyWindow
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        attach_diro_ui_to_game();
     });
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4.0 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (!g_diroWindow || g_diroWindow.hidden) {
-            setup_diro_ui();
-        }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        attach_diro_ui_to_game();
+    });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        attach_diro_ui_to_game();
+    });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(7.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        attach_diro_ui_to_game();
     });
 }

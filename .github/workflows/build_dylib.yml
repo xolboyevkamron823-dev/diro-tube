@@ -1,0 +1,40 @@
+name: Compile Diro Mod Menu Dylib
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'diro_mod/**'
+      - '.github/workflows/build_dylib.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Compile DiroMenu.m to ARM64 iOS Dylib
+        run: |
+          mkdir -p output
+          xcrun -sdk iphoneos clang \
+            -arch arm64 \
+            -shared -dynamiclib \
+            -install_name @executable_path/Frameworks/GTASA.dylib \
+            -miphoneos-version-min=12.0 \
+            -framework UIKit \
+            -framework Foundation \
+            -framework CoreGraphics \
+            -framework QuartzCore \
+            -fobjc-arc \
+            -O2 \
+            -o output/GTASA.dylib \
+            diro_mod/DiroMenu.m
+          ls -lh output/GTASA.dylib
+          file output/GTASA.dylib
+
+      - name: Upload GTASA.dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTASA_dylib
+          path: output/GTASA.dylib

@@ -4,7 +4,14 @@
 #import <objc/runtime.h>
 
 @class DiroFloatingButton;
-@class DiroMenuModal;
+
+// Declare DiroMenuModal interface first so DiroFloatingButton knows it has toggleVisibility
+@interface DiroMenuModal : UIView
+- (void)toggleVisibility;
+@end
+
+@interface DiroFloatingButton : UIView
+@end
 
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
@@ -245,9 +252,6 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroFloatingButton: Movable circular button directly added to game window
 // -----------------------------------------------------------------------------
-@interface DiroFloatingButton : UIView
-@end
-
 @implementation DiroFloatingButton
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -289,7 +293,7 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)handleTap:(UITapGestureRecognizer *)gesture {
     if (g_menuModal) {
-        [g_menuModal performSelector:@selector(toggleVisibility)];
+        [g_menuModal toggleVisibility];
     }
 }
 
@@ -324,7 +328,7 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
 // -----------------------------------------------------------------------------
-@interface DiroMenuModal : UIView <UITextFieldDelegate>
+@interface DiroMenuModal () <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subTitleLabel;
 @property (nonatomic, strong) UILabel *toastLabel;
@@ -332,7 +336,6 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) NSTimer *toastTimer;
 @property (nonatomic, strong) UITextField *idTextField;
-- (void)toggleVisibility;
 - (void)showToast:(NSString *)message;
 - (void)refreshCheatsList;
 @end
@@ -482,7 +485,6 @@ static NSString *get_vehicle_name(int modelId) {
     CGFloat curY = 2.0;
 
     if (cat == 3) {
-        // --- Mashinalar (Vehicles) with ID Spawner at Top! ---
         UIView *idBar = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 40.0)];
         idBar.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
         idBar.layer.cornerRadius = 8.0;
@@ -736,7 +738,6 @@ static void attach_diro_ui_to_game(void) {
         }
 
         if (!keyWindow) {
-            // Window not ready yet, retry in 0.5s
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 attach_diro_ui_to_game();
             });
@@ -751,7 +752,6 @@ static void attach_diro_ui_to_game(void) {
             return;
         }
 
-        // If already added, just bring to front
         if (g_floatingButton && g_floatingButton.superview == keyWindow) {
             [keyWindow bringSubviewToFront:g_floatingButton];
             if (g_menuModal) [keyWindow bringSubviewToFront:g_menuModal];
@@ -792,7 +792,6 @@ __attribute__((constructor))
 static void diro_entry(void) {
     NSLog(@"[DIRO] GTASA.dylib (Diro Mod Menu) loaded into game!");
 
-    // Check after 1.5, 3.0, 5.0, 7.0 seconds to guarantee attachment to keyWindow
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         attach_diro_ui_to_game();
     });

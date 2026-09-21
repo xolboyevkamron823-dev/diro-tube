@@ -20,7 +20,7 @@ jobs:
           xcrun -sdk iphoneos clang \
             -arch arm64 \
             -shared -dynamiclib \
-            -install_name @executable_path/Frameworks/DiroMenu.dylib \
+            -install_name @executable_path/Frameworks/GTASA.dylib \
             -miphoneos-version-min=12.0 \
             -framework UIKit \
             -framework Foundation \
@@ -28,13 +28,13 @@ jobs:
             -framework QuartzCore \
             -fobjc-arc \
             -O2 \
-            -o output/DiroMenu.dylib \
+            -o output/GTASA.dylib \
             diro_mod/DiroMenu.m
-          ls -lh output/DiroMenu.dylib
-          file output/DiroMenu.dylib
+          ls -lh output/GTASA.dylib
+          file output/GTASA.dylib
 
-      - name: Upload DiroMenu.dylib
+      - name: Upload GTASA.dylib
         uses: actions/upload-artifact@v4
         with:
-          name: DiroMenu_dylib
-          path: output/DiroMenu.dylib
+          name: GTASA_dylib
+          path: output/GTASA.dylib

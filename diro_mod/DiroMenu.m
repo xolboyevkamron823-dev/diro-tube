@@ -4,10 +4,21 @@
 #import <objc/runtime.h>
 #import <dlfcn.h>
 
-// Forward declarations
-@class DiroWindow;
-@class DiroFloatingButton;
-@class DiroMenuModal;
+// Forward full interfaces
+@interface DiroFloatingButton : UIView
+@end
+
+@interface DiroMenuModal : UIView
+- (void)toggleVisibility;
+- (void)showToast:(NSString *)message;
+- (void)refreshCheatsList;
+@end
+
+@interface DiroWindow : UIWindow
+@end
+
+@interface DiroRootViewController : UIViewController
+@end
 
 static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
@@ -263,9 +274,6 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroWindow: Transparent overlay window that passes touches through to the game
 // -----------------------------------------------------------------------------
-@interface DiroWindow : UIWindow
-@end
-
 @implementation DiroWindow
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -301,9 +309,6 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroRootViewController: Handles landscape orientation and responsive layout
 // -----------------------------------------------------------------------------
-@interface DiroRootViewController : UIViewController
-@end
-
 @implementation DiroRootViewController
 - (BOOL)shouldAutorotate {
     return YES;
@@ -337,9 +342,6 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroFloatingButton: Movable circular button with snap-to-edge animation
 // -----------------------------------------------------------------------------
-@interface DiroFloatingButton : UIView
-@end
-
 @implementation DiroFloatingButton
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -416,7 +418,7 @@ static NSString *get_vehicle_name(int modelId) {
 // -----------------------------------------------------------------------------
 // DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
 // -----------------------------------------------------------------------------
-@interface DiroMenuModal : UIView <UITextFieldDelegate>
+@interface DiroMenuModal () <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subTitleLabel;
 @property (nonatomic, strong) UILabel *toastLabel;

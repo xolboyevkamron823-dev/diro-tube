@@ -5,7 +5,6 @@
 
 @class DiroFloatingButton;
 
-// Declare DiroMenuModal interface first so DiroFloatingButton knows it has toggleVisibility
 @interface DiroMenuModal : UIView
 - (void)toggleVisibility;
 @end
@@ -250,7 +249,7 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 // -----------------------------------------------------------------------------
-// DiroFloatingButton: Movable circular button directly added to game window
+// DiroFloatingButton: Movable circular button
 // -----------------------------------------------------------------------------
 @implementation DiroFloatingButton
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -326,7 +325,7 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
+// DiroMenuModal: Sleek dark acrylic cheat hub
 // -----------------------------------------------------------------------------
 @interface DiroMenuModal () <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
@@ -719,46 +718,24 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// Direct Game Window Attachment (100% Crash-Proof)
+// Direct Game Window Attachment with Periodic Repositioning
 // -----------------------------------------------------------------------------
-static void attach_diro_ui_to_game(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *keyWindow = nil;
-        UIApplication *app = [UIApplication sharedApplication];
-        if (!app) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                attach_diro_ui_to_game();
-            });
-            return;
-        }
+static void check_and_reposition(void) {
+    UIApplication *app = [UIApplication sharedApplication];
+    if (!app) return;
 
-        keyWindow = app.keyWindow;
-        if (!keyWindow && app.windows.count > 0) {
-            keyWindow = app.windows.firstObject;
-        }
+    UIWindow *w = app.keyWindow;
+    if (!w && app.windows.count > 0) {
+        w = app.windows.firstObject;
+    }
+    if (!w) return;
 
-        if (!keyWindow) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                attach_diro_ui_to_game();
-            });
-            return;
-        }
+    CGRect b = w.bounds;
+    if (b.size.width < 50 || b.size.height < 50) return;
 
-        CGRect b = keyWindow.bounds;
-        if (b.size.width < 50 || b.size.height < 50) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                attach_diro_ui_to_game();
-            });
-            return;
-        }
-
-        if (g_floatingButton && g_floatingButton.superview == keyWindow) {
-            [keyWindow bringSubviewToFront:g_floatingButton];
-            if (g_menuModal) [keyWindow bringSubviewToFront:g_menuModal];
-            return;
-        }
-
-        NSLog(@"[DIRO] Attaching Diro views to game window (size: %.0f x %.0f)", b.size.width, b.size.height);
+    if (!g_floatingButton || g_floatingButton.superview != w) {
+        if (g_floatingButton) [g_floatingButton removeFromSuperview];
+        if (g_menuModal) [g_menuModal removeFromSuperview];
 
         CGFloat btnSize = 52.0;
         CGFloat initialX = 14.0;
@@ -767,8 +744,8 @@ static void attach_diro_ui_to_game(void) {
         if (!g_floatingButton) {
             g_floatingButton = [[DiroFloatingButton alloc] initWithFrame:CGRectMake(initialX, initialY, btnSize, btnSize)];
         }
-        [keyWindow addSubview:g_floatingButton];
-        [keyWindow bringSubviewToFront:g_floatingButton];
+        [w addSubview:g_floatingButton];
+        [w bringSubviewToFront:g_floatingButton];
 
         CGFloat mw = MIN(380.0, b.size.width - 24.0);
         CGFloat mh = MIN(290.0, b.size.height - 24.0);
@@ -780,31 +757,27 @@ static void attach_diro_ui_to_game(void) {
             g_menuModal.hidden = YES;
             g_menuModal.alpha = 0.0;
         }
-        [keyWindow addSubview:g_menuModal];
-        [keyWindow bringSubviewToFront:g_menuModal];
+        [w addSubview:g_menuModal];
+        [w bringSubviewToFront:g_menuModal];
 
-        NSLog(@"[DIRO] Diro UI successfully attached to game window!");
-    });
+        NSLog(@"[DIRO] Diro UI attached to active game window (%.0fx%.0f)", b.size.width, b.size.height);
+    } else {
+        [w bringSubviewToFront:g_floatingButton];
+        if (g_menuModal && !g_menuModal.hidden) {
+            [w bringSubviewToFront:g_menuModal];
+        }
+    }
 }
 
-// Constructor: safe initialization
 __attribute__((constructor))
 static void diro_entry(void) {
-    NSLog(@"[DIRO] GTASA.dylib (Diro Mod Menu) loaded into game!");
+    NSLog(@"[DIRO] DiroMenu.dylib initialized!");
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        attach_diro_ui_to_game();
+    // Periodic check every 1.5s using GCD timer
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), (uint64_t)(1.5 * NSEC_PER_SEC), (uint64_t)(0.1 * NSEC_PER_SEC));
+    dispatch_source_set_event_handler(timer, ^{
+        check_and_reposition();
     });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        attach_diro_ui_to_game();
-    });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        attach_diro_ui_to_game();
-    });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(7.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        attach_diro_ui_to_game();
-    });
+    dispatch_resume(timer);
 }

@@ -2,16 +2,14 @@
 #import <Foundation/Foundation.h>
 #import <mach-o/dyld.h>
 #import <objc/runtime.h>
+#import <dlfcn.h>
 
+// Forward declarations
+@class DiroWindow;
 @class DiroFloatingButton;
+@class DiroMenuModal;
 
-@interface DiroMenuModal : UIView
-- (void)toggleVisibility;
-@end
-
-@interface DiroFloatingButton : UIView
-@end
-
+static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
 
@@ -105,6 +103,7 @@ static NSString *get_vehicle_name(int modelId) {
         case 456: return @"Yankee";
         case 457: return @"Caddy";
         case 458: return @"Solair";
+        case 459: return @"Berkley's RC Van";
         case 460: return @"Skimmer";
         case 461: return @"PCJ-600";
         case 462: return @"Faggio";
@@ -133,7 +132,7 @@ static NSString *get_vehicle_name(int modelId) {
         case 485: return @"Baggage";
         case 486: return @"Dozer";
         case 487: return @"Maverick";
-        case 488: return @"News Chopper";
+        case 488: return @"News Maverick";
         case 489: return @"Rancher";
         case 490: return @"FBI Rancher";
         case 491: return @"Virgo";
@@ -147,9 +146,9 @@ static NSString *get_vehicle_name(int modelId) {
         case 499: return @"Benson";
         case 500: return @"Mesa";
         case 501: return @"RC Goblin";
-        case 502: return @"Hotring A";
-        case 503: return @"Hotring B";
-        case 504: return @"Bloodring";
+        case 502: return @"Hotring Racer A";
+        case 503: return @"Hotring Racer B";
+        case 504: return @"Bloodring Banger";
         case 505: return @"Rancher";
         case 506: return @"Super GT";
         case 507: return @"Elegant";
@@ -168,8 +167,8 @@ static NSString *get_vehicle_name(int modelId) {
         case 520: return @"Hydra";
         case 521: return @"FCR-900";
         case 522: return @"NRG-500";
-        case 523: return @"HPV1000";
-        case 524: return @"Cement";
+        case 523: return @"HPV-1000";
+        case 524: return @"Cement Truck";
         case 525: return @"Towtruck";
         case 526: return @"Fortune";
         case 527: return @"Cadrona";
@@ -177,7 +176,7 @@ static NSString *get_vehicle_name(int modelId) {
         case 529: return @"Willard";
         case 530: return @"Forklift";
         case 531: return @"Tractor";
-        case 532: return @"Combine";
+        case 532: return @"Combine Harvester";
         case 533: return @"Feltzer";
         case 534: return @"Remington";
         case 535: return @"Slamvan";
@@ -189,7 +188,7 @@ static NSString *get_vehicle_name(int modelId) {
         case 541: return @"Bullet";
         case 542: return @"Clover";
         case 543: return @"Sadler";
-        case 544: return @"Firetruck Ladder";
+        case 544: return @"Firetruck LA";
         case 545: return @"Hustler";
         case 546: return @"Intruder";
         case 547: return @"Primo";
@@ -214,6 +213,8 @@ static NSString *get_vehicle_name(int modelId) {
         case 566: return @"Tahoma";
         case 567: return @"Savanna";
         case 568: return @"Bandito";
+        case 569: return @"Freight Flat";
+        case 570: return @"Streak Carriage";
         case 571: return @"Kart";
         case 572: return @"Mower";
         case 573: return @"Dune";
@@ -227,37 +228,125 @@ static NSString *get_vehicle_name(int modelId) {
         case 581: return @"BF-400";
         case 582: return @"Newsvan";
         case 583: return @"Tug";
+        case 584: return @"Petrol Trailer";
         case 585: return @"Emperor";
         case 586: return @"Wayfarer";
         case 587: return @"Euros";
         case 588: return @"Hotdog";
         case 589: return @"Club";
+        case 590: return @"Freight Box";
+        case 591: return @"Trailer 3";
         case 592: return @"Andromada";
         case 593: return @"Dodo";
         case 594: return @"RC Cam";
         case 595: return @"Launch";
-        case 596: return @"Police LS";
-        case 597: return @"Police SF";
-        case 598: return @"Police LV";
+        case 596: return @"Police Car (LSPD)";
+        case 597: return @"Police Car (SFPD)";
+        case 598: return @"Police Car (LVPD)";
         case 599: return @"Police Ranger";
         case 600: return @"Picador";
-        case 601: return @"SWAT Van";
+        case 601: return @"S.W.A.T. Van";
         case 602: return @"Alpha";
         case 603: return @"Phoenix";
-        default: return [NSString stringWithFormat:@"Vehicle %d", modelId];
+        case 604: return @"Glendale Damaged";
+        case 605: return @"Sadler Damaged";
+        case 606: return @"Baggage Trailer A";
+        case 607: return @"Baggage Trailer B";
+        case 608: return @"Tug Stairs";
+        case 609: return @"Boxville Black";
+        case 610: return @"Farm Trailer";
+        case 611: return @"Street Clean Trailer";
+        default: return [NSString stringWithFormat:@"Vehicle_%d", modelId];
     }
 }
 
 // -----------------------------------------------------------------------------
-// DiroFloatingButton: Movable circular button
+// DiroWindow: Transparent overlay window that passes touches through to the game
 // -----------------------------------------------------------------------------
+@interface DiroWindow : UIWindow
+@end
+
+@implementation DiroWindow
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.windowLevel = UIWindowLevelStatusBar + 100.0;
+        self.userInteractionEnabled = YES;
+    }
+    return self;
+}
+
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000
+- (instancetype)initWithWindowScene:(UIWindowScene *)windowScene API_AVAILABLE(ios(13.0)) {
+    self = [super initWithWindowScene:windowScene];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.windowLevel = UIWindowLevelStatusBar + 100.0;
+        self.userInteractionEnabled = YES;
+    }
+    return self;
+}
+#endif
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hitView = [super hitTest:point withEvent:event];
+    if (hitView == self || hitView == self.rootViewController.view) {
+        return nil; // Pass touches through to GTA SA game!
+    }
+    return hitView;
+}
+@end
+
+// -----------------------------------------------------------------------------
+// DiroRootViewController: Handles landscape orientation and responsive layout
+// -----------------------------------------------------------------------------
+@interface DiroRootViewController : UIViewController
+@end
+
+@implementation DiroRootViewController
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskAll;
+}
+- (BOOL)prefersStatusBarHidden {
+    return YES;
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext>  _Nonnull context) {
+        if (g_floatingButton) {
+            CGRect f = g_floatingButton.frame;
+            CGFloat minMargin = 12.0;
+            CGFloat targetX = (f.origin.x > size.width / 2.0) ? (size.width - f.size.width - minMargin) : minMargin;
+            CGFloat targetY = MIN(MAX(f.origin.y, 20.0), size.height - f.size.height - 20.0);
+            g_floatingButton.frame = CGRectMake(targetX, targetY, f.size.width, f.size.height);
+        }
+        if (g_menuModal) {
+            CGFloat mw = MIN(380.0, size.width - 24.0);
+            CGFloat mh = MIN(290.0, size.height - 24.0);
+            g_menuModal.frame = CGRectMake((size.width - mw) / 2.0, (size.height - mh) / 2.0, mw, mh);
+        }
+    } completion:nil];
+}
+@end
+
+// -----------------------------------------------------------------------------
+// DiroFloatingButton: Movable circular button with snap-to-edge animation
+// -----------------------------------------------------------------------------
+@interface DiroFloatingButton : UIView
+@end
+
 @implementation DiroFloatingButton
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor colorWithRed:0.09 green:0.09 blue:0.11 alpha:0.95];
         self.layer.cornerRadius = frame.size.width / 2.0;
-        self.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0].CGColor;
+        self.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0].CGColor; // Gold
         self.layer.borderWidth = 2.5;
         self.layer.shadowColor = [UIColor blackColor].CGColor;
         self.layer.shadowOffset = CGSizeMake(0, 4);
@@ -292,7 +381,7 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)handleTap:(UITapGestureRecognizer *)gesture {
     if (g_menuModal) {
-        [g_menuModal toggleVisibility];
+        [g_menuModal performSelector:@selector(toggleVisibility)];
     }
 }
 
@@ -325,18 +414,16 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// DiroMenuModal: Sleek dark acrylic cheat hub
+// DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
 // -----------------------------------------------------------------------------
-@interface DiroMenuModal () <UITextFieldDelegate>
+@interface DiroMenuModal : UIView <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subTitleLabel;
 @property (nonatomic, strong) UILabel *toastLabel;
 @property (nonatomic, strong) UISegmentedControl *segmentedControl;
 @property (nonatomic, strong) UIScrollView *scrollView;
-@property (nonatomic, strong) NSTimer *toastTimer;
 @property (nonatomic, strong) UITextField *idTextField;
-- (void)showToast:(NSString *)message;
-- (void)refreshCheatsList;
+@property (nonatomic, strong) NSTimer *toastTimer;
 @end
 
 @implementation DiroMenuModal
@@ -344,79 +431,135 @@ static NSString *get_vehicle_name(int modelId) {
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.10 alpha:0.96];
-        self.layer.cornerRadius = 18.0;
-        self.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0].CGColor;
-        self.layer.borderWidth = 1.8;
+        self.backgroundColor = [UIColor colorWithRed:0.07 green:0.07 blue:0.09 alpha:0.96];
+        self.layer.cornerRadius = 14.0;
+        self.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.8].CGColor;
+        self.layer.borderWidth = 1.5;
         self.layer.shadowColor = [UIColor blackColor].CGColor;
-        self.layer.shadowOffset = CGSizeMake(0, 8);
-        self.layer.shadowOpacity = 0.85;
-        self.layer.shadowRadius = 24.0;
+        self.layer.shadowOffset = CGSizeMake(0, 10);
+        self.layer.shadowOpacity = 0.9;
+        self.layer.shadowRadius = 16.0;
         self.clipsToBounds = YES;
-        self.userInteractionEnabled = YES;
 
-        CGFloat w = frame.size.width;
-        CGFloat h = frame.size.height;
-
-        self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 10, w - 60, 20)];
-        self.titleLabel.text = @"👑 DIRO MOD MENU";
-        self.titleLabel.font = [UIFont boldSystemFontOfSize:15];
-        self.titleLabel.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
-        [self addSubview:self.titleLabel];
-
-        self.subTitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 30, w - 60, 14)];
-        self.subTitleLabel.text = @"100% Offline • Ro'yxatdan o'tish shart emas";
-        self.subTitleLabel.font = [UIFont systemFontOfSize:10];
-        self.subTitleLabel.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
-        [self addSubview:self.subTitleLabel];
-
-        UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        closeBtn.frame = CGRectMake(w - 38, 10, 28, 28);
-        closeBtn.backgroundColor = [UIColor colorWithWhite:0.18 alpha:1.0];
-        closeBtn.layer.cornerRadius = 14;
-        [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
-        closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13];
-        [closeBtn setTitleColor:[UIColor colorWithWhite:0.85 alpha:1.0] forState:UIControlStateNormal];
-        [closeBtn addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:closeBtn];
-
-        self.toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(14, 46, w - 28, 18)];
-        self.toastLabel.textAlignment = NSTextAlignmentCenter;
-        self.toastLabel.font = [UIFont boldSystemFontOfSize:11];
-        self.toastLabel.textColor = [UIColor colorWithRed:0.20 green:0.95 blue:0.45 alpha:1.0];
-        self.toastLabel.alpha = 0.0;
-        [self addSubview:self.toastLabel];
-
-        NSArray *categories = @[@"⚡ Asosiy", @"🔫 Qurollar", @"⭐ Politsiya", @"🚗 Mashinalar"];
-        self.segmentedControl = [[UISegmentedControl alloc] initWithItems:categories];
-        self.segmentedControl.frame = CGRectMake(14, 68, w - 28, 28);
-        self.segmentedControl.selectedSegmentIndex = 0;
-        if (@available(iOS 13.0, *)) {
-            self.segmentedControl.selectedSegmentTintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.35];
-            [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: [UIFont boldSystemFontOfSize:11]} forState:UIControlStateSelected];
-            [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor colorWithWhite:0.7 alpha:1.0], NSFontAttributeName: [UIFont systemFontOfSize:11]} forState:UIControlStateNormal];
-        }
-        [self.segmentedControl addTarget:self action:@selector(categoryChanged:) forControlEvents:UIControlEventValueChanged];
-        [self addSubview:self.segmentedControl];
-
-        CGFloat scrollY = 104;
-        CGFloat scrollH = h - scrollY - 8;
-        self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(14, scrollY, w - 28, scrollH)];
-        self.scrollView.showsVerticalScrollIndicator = YES;
-        self.scrollView.indicatorStyle = UIScrollViewIndicatorStyleWhite;
-        [self addSubview:self.scrollView];
-
-        UITapGestureRecognizer *bgTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissKeyboard)];
-        bgTap.cancelsTouchesInView = NO;
-        [self addGestureRecognizer:bgTap];
-
-        [self refreshCheatsList];
+        [self setupUI];
     }
     return self;
 }
 
-- (void)dismissKeyboard {
-    [self endEditing:YES];
+- (void)setupUI {
+    CGFloat w = self.bounds.size.width;
+
+    // Header container
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 44)];
+    headerView.backgroundColor = [UIColor colorWithRed:0.11 green:0.11 blue:0.14 alpha:1.0];
+    [self addSubview:headerView];
+
+    // Crown Icon & Title
+    self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 4, w - 60, 20)];
+    self.titleLabel.text = @"👑 DIRO MOD MENU";
+    self.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    self.titleLabel.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+    [headerView addSubview:self.titleLabel];
+
+    // Subtitle
+    self.subTitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 24, w - 60, 14)];
+    self.subTitleLabel.text = @"GTA San Andreas iOS • 100% Oflayn & Tekin";
+    self.subTitleLabel.font = [UIFont systemFontOfSize:10];
+    self.subTitleLabel.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    [headerView addSubview:self.subTitleLabel];
+
+    // Close button (X)
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closeBtn.frame = CGRectMake(w - 38, 6, 32, 32);
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+    [closeBtn setTitleColor:[UIColor colorWithWhite:0.8 alpha:1.0] forState:UIControlStateNormal];
+    [closeBtn addTarget:self action:@selector(toggleVisibility) forControlEvents:UIControlEventTouchUpInside];
+    [headerView addSubview:closeBtn];
+
+    // Toast status notification banner
+    self.toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 48, w - 20, 20)];
+    self.toastLabel.backgroundColor = [UIColor colorWithRed:0.15 green:0.75 blue:0.35 alpha:0.25];
+    self.toastLabel.layer.cornerRadius = 4;
+    self.toastLabel.layer.borderColor = [UIColor colorWithRed:0.15 green:0.80 blue:0.40 alpha:0.8].CGColor;
+    self.toastLabel.layer.borderWidth = 0.8;
+    self.toastLabel.clipsToBounds = YES;
+    self.toastLabel.textAlignment = NSTextAlignmentCenter;
+    self.toastLabel.font = [UIFont boldSystemFontOfSize:11];
+    self.toastLabel.textColor = [UIColor colorWithRed:0.30 green:1.00 blue:0.50 alpha:1.0];
+    self.toastLabel.hidden = YES;
+    [self addSubview:self.toastLabel];
+
+    // Category segmented control
+    NSArray *categories = @[@"🚗 Avtolar", @"🛡️ O'yinchi", @"🔫 Qurollar", @"🚓 Qidiruv"];
+    self.segmentedControl = [[UISegmentedControl alloc] initWithItems:categories];
+    self.segmentedControl.frame = CGRectMake(10, 72, w - 20, 28);
+    self.segmentedControl.selectedSegmentIndex = 0;
+    if (@available(iOS 13.0, *)) {
+        self.segmentedControl.selectedSegmentTintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.85];
+        [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor blackColor], NSFontAttributeName: [UIFont boldSystemFontOfSize:11]} forState:UIControlStateSelected];
+        [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: [UIFont systemFontOfSize:11]} forState:UIControlStateNormal];
+    } else {
+        self.segmentedControl.tintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+    }
+    [self.segmentedControl addTarget:self action:@selector(categoryChanged:) forControlEvents:UIControlEventValueChanged];
+    [self addSubview:self.segmentedControl];
+
+    // Scrollable cheat list
+    CGFloat listY = 106.0;
+    self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(10, listY, w - 20, self.bounds.size.height - listY - 8.0)];
+    self.scrollView.showsVerticalScrollIndicator = YES;
+    self.scrollView.alwaysBounceVertical = YES;
+    [self addSubview:self.scrollView];
+
+    [self refreshCheatsList];
+}
+
+- (void)toggleVisibility {
+    BOOL shouldOpen = self.hidden;
+    if (shouldOpen) {
+        self.transform = CGAffineTransformMakeScale(0.85, 0.85);
+        self.alpha = 0.0;
+        self.hidden = NO;
+        [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
+            self.transform = CGAffineTransformIdentity;
+            self.alpha = 1.0;
+        } completion:nil];
+    } else {
+        [self.idTextField resignFirstResponder];
+        [UIView animateWithDuration:0.2 animations:^{
+            self.transform = CGAffineTransformMakeScale(0.85, 0.85);
+            self.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            self.hidden = YES;
+            self.transform = CGAffineTransformIdentity;
+        }];
+    }
+}
+
+- (void)showToast:(NSString *)message {
+    [self.toastTimer invalidate];
+    self.toastLabel.text = message;
+    self.toastLabel.alpha = 0.0;
+    self.toastLabel.hidden = NO;
+    [UIView animateWithDuration:0.2 animations:^{
+        self.toastLabel.alpha = 1.0;
+    }];
+
+    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.5 target:self selector:@selector(hideToast) userInfo:nil repeats:NO];
+}
+
+- (void)hideToast {
+    [UIView animateWithDuration:0.3 animations:^{
+        self.toastLabel.alpha = 0.0;
+    } completion:^(BOOL finished) {
+        self.toastLabel.hidden = YES;
+    }];
+}
+
+- (void)categoryChanged:(UISegmentedControl *)sender {
+    [self.idTextField resignFirstResponder];
+    [self refreshCheatsList];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
@@ -425,113 +568,74 @@ static NSString *get_vehicle_name(int modelId) {
     return YES;
 }
 
-- (void)showToast:(NSString *)message {
-    [self.toastTimer invalidate];
-    self.toastLabel.text = message;
-    [UIView animateWithDuration:0.2 animations:^{
-        self.toastLabel.alpha = 1.0;
-    }];
-    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:1.8 repeats:NO block:^(NSTimer * _Nonnull timer) {
-        [UIView animateWithDuration:0.3 animations:^{
-            self.toastLabel.alpha = 0.0;
-        }];
-    }];
-}
-
-- (void)toggleVisibility {
-    [self endEditing:YES];
-    if (self.hidden) {
-        UIView *sv = self.superview;
-        if (sv) {
-            CGFloat mw = MIN(380.0, sv.bounds.size.width - 24.0);
-            CGFloat mh = MIN(290.0, sv.bounds.size.height - 24.0);
-            self.frame = CGRectMake((sv.bounds.size.width - mw) / 2.0, (sv.bounds.size.height - mh) / 2.0, mw, mh);
-            [sv bringSubviewToFront:self];
-        }
-        self.hidden = NO;
-        self.transform = CGAffineTransformMakeScale(0.85, 0.85);
-        self.alpha = 0.0;
-        [UIView animateWithDuration:0.25 delay:0 usingSpringWithDamping:0.78 initialSpringVelocity:0.6 options:UIViewAnimationOptionCurveEaseOut animations:^{
-            self.transform = CGAffineTransformIdentity;
-            self.alpha = 1.0;
-        } completion:nil];
-    } else {
-        [UIView animateWithDuration:0.2 animations:^{
-            self.transform = CGAffineTransformMakeScale(0.88, 0.88);
-            self.alpha = 0.0;
-        } completion:^(BOOL finished) {
-            self.hidden = YES;
-        }];
-    }
-}
-
-- (void)closeTapped {
-    [self toggleVisibility];
-}
-
-- (void)categoryChanged:(UISegmentedControl *)sender {
-    [self endEditing:YES];
-    [self refreshCheatsList];
-}
-
 - (void)refreshCheatsList {
-    for (UIView *sub in [self.scrollView.subviews copy]) {
-        [sub removeFromSuperview];
+    for (UIView *v in self.scrollView.subviews) {
+        [v removeFromSuperview];
     }
 
     NSInteger cat = self.segmentedControl.selectedSegmentIndex;
     CGFloat btnW = self.scrollView.bounds.size.width;
-    CGFloat curY = 2.0;
+    CGFloat curY = 0.0;
 
-    if (cat == 3) {
-        UIView *idBar = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 40.0)];
-        idBar.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
-        idBar.layer.cornerRadius = 8.0;
-        idBar.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.8].CGColor;
-        idBar.layer.borderWidth = 1.0;
-        idBar.clipsToBounds = YES;
+    // Category 0: Vehicles + ID Spawner
+    if (cat == 0) {
+        // Vehicle Spawner Card
+        UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 76)];
+        card.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
+        card.layer.cornerRadius = 8.0;
+        card.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.6].CGColor;
+        card.layer.borderWidth = 1.0;
+        card.clipsToBounds = YES;
 
-        UILabel *idLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, 0, 50, 40)];
-        idLbl.text = @"🆔 ID:";
-        idLbl.font = [UIFont boldSystemFontOfSize:12];
-        idLbl.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
-        [idBar addSubview:idLbl];
+        UILabel *cardTitle = [[UILabel alloc] initWithFrame:CGRectMake(8, 6, btnW - 16, 16)];
+        cardTitle.text = @"🆔 Mashina ID bo'yicha chiqarish (400 - 611):";
+        cardTitle.font = [UIFont boldSystemFontOfSize:11];
+        cardTitle.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [card addSubview:cardTitle];
 
-        self.idTextField = [[UITextField alloc] initWithFrame:CGRectMake(60, 6, btnW - 160, 28)];
-        self.idTextField.backgroundColor = [UIColor colorWithRed:0.07 green:0.07 blue:0.09 alpha:1.0];
-        self.idTextField.layer.cornerRadius = 6.0;
-        self.idTextField.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:1.0].CGColor;
+        // TextField
+        self.idTextField = [[UITextField alloc] initWithFrame:CGRectMake(8, 28, btnW - 110, 38)];
+        self.idTextField.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        self.idTextField.layer.cornerRadius = 6;
+        self.idTextField.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
         self.idTextField.layer.borderWidth = 0.8;
         self.idTextField.textColor = [UIColor whiteColor];
-        self.idTextField.font = [UIFont boldSystemFontOfSize:13];
-        self.idTextField.textAlignment = NSTextAlignmentCenter;
-        self.idTextField.placeholder = @"400-611";
+        self.idTextField.font = [UIFont boldSystemFontOfSize:14];
+        self.idTextField.placeholder = @"Masalan: 411";
         self.idTextField.keyboardType = UIKeyboardTypeNumberPad;
-        self.idTextField.returnKeyType = UIReturnKeyDone;
+        self.idTextField.textAlignment = NSTextAlignmentCenter;
         self.idTextField.delegate = self;
-        [idBar addSubview:self.idTextField];
+        if (@available(iOS 13.0, *)) {
+            self.idTextField.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        }
+        [card addSubview:self.idTextField];
 
+        // Spawn Button
         UIButton *spawnBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        spawnBtn.frame = CGRectMake(btnW - 92, 6, 84, 28);
+        spawnBtn.frame = CGRectMake(btnW - 96, 28, 88, 38);
         spawnBtn.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
-        spawnBtn.layer.cornerRadius = 6.0;
+        spawnBtn.layer.cornerRadius = 6;
         [spawnBtn setTitle:@"🚗 SPAWN" forState:UIControlStateNormal];
-        spawnBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
         [spawnBtn setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+        spawnBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
         [spawnBtn addTarget:self action:@selector(spawnByIdTapped) forControlEvents:UIControlEventTouchUpInside];
-        [idBar addSubview:spawnBtn];
+        [card addSubview:spawnBtn];
 
-        [self.scrollView addSubview:idBar];
-        curY += 46.0;
+        [self.scrollView addSubview:card];
+        curY += 82.0;
 
+        // Quick popular vehicles list
         NSArray *vList = @[
-            @{@"title": @"🏎️ Infernus (ID: 411)", @"badge": @"SPAWN", @"vid": @(411)},
-            @{@"title": @"🏎️ Bullet (ID: 541)", @"badge": @"SPAWN", @"vid": @(541)},
-            @{@"title": @"🏎️ Sultan (ID: 560)", @"badge": @"SPAWN", @"vid": @(560)},
-            @{@"title": @"🏎️ Elegy (ID: 562)", @"badge": @"SPAWN", @"vid": @(562)},
+            @{@"title": @"🏎️ Infernus Sportkar (ID: 411)", @"badge": @"SPAWN", @"vid": @(411)},
+            @{@"title": @"🏎️ Bullet Superkar (ID: 541)", @"badge": @"SPAWN", @"vid": @(541)},
             @{@"title": @"🏎️ Cheetah (ID: 415)", @"badge": @"SPAWN", @"vid": @(415)},
             @{@"title": @"🏎️ Turismo (ID: 451)", @"badge": @"SPAWN", @"vid": @(451)},
-            @{@"title": @"🏍️ NRG-500 Sportbayk (ID: 522)", @"badge": @"SPAWN", @"vid": @(522)},
+            @{@"title": @"🏎️ Banshee (ID: 429)", @"badge": @"SPAWN", @"vid": @(429)},
+            @{@"title": @"🚗 Sultan 4-Eshik Drift (ID: 560)", @"badge": @"SPAWN", @"vid": @(560)},
+            @{@"title": @"🚗 Elegy Drift (ID: 562)", @"badge": @"SPAWN", @"vid": @(562)},
+            @{@"title": @"🚗 Buffalo (ID: 402)", @"badge": @"SPAWN", @"vid": @(402)},
+            @{@"title": @"🚗 Jester Tyuning (ID: 559)", @"badge": @"SPAWN", @"vid": @(559)},
+            @{@"title": @"🏍️ NRG-500 Tezkor Mototsikl (ID: 522)", @"badge": @"SPAWN", @"vid": @(522)},
             @{@"title": @"🏍️ Sanchez Krossbayk (ID: 468)", @"badge": @"SPAWN", @"vid": @(468)},
             @{@"title": @"🚗 Rhino Tank (ID: 432)", @"badge": @"SPAWN", @"vid": @(432)},
             @{@"title": @"✈️ Hydra Qiruvchi Samolyot (ID: 520)", @"badge": @"SPAWN", @"vid": @(520)},
@@ -582,7 +686,7 @@ static NSString *get_vehicle_name(int modelId) {
     }
 
     NSArray *items = nil;
-    if (cat == 0) {
+    if (cat == 1) {
         items = @[
             @{@"title": @"❤️ Cheksiz Jon (God Mode)", @"badge": @"FAOL", @"off": @(0xade84), @"msg": @"✅ Cheksiz Jon (God Mode) faollashtirildi!"},
             @{@"title": @"💰 HESOYAM ($250,000 + Jon + Bronya)", @"badge": @"BERISH", @"off": @(0xad3d4), @"msg": @"✅ $250,000 va Bronya berildi!"},
@@ -590,13 +694,13 @@ static NSString *get_vehicle_name(int modelId) {
             @{@"title": @"🚀 Jetpack Chiqarish", @"badge": @"SPAWN", @"off": @(0xad6fc), @"msg": @"✅ Jetpack chiqarildi!"},
             @{@"title": @"⚡ Tez Harakat (Fast Motion)", @"badge": @"FAOL", @"off": @(0xae76c), @"msg": @"✅ Tez harakat faollashtirildi!"}
         ];
-    } else if (cat == 1) {
+    } else if (cat == 2) {
         items = @[
             @{@"title": @"🔫 Qurollar To'plami 1 (Kastet, Bita, Pistol)", @"badge": @"BERISH", @"off": @(0xacc80), @"msg": @"✅ 1-To'plam qurollari berildi!"},
             @{@"title": @"💣 Qurollar To'plami 2 (Deagle, Spas, MP5, M4)", @"badge": @"BERISH", @"off": @(0xacf40), @"msg": @"✅ 2-To'plam qurollari berildi!"},
             @{@"title": @"🚀 Qurollar To'plami 3 (Minigun, Bazuka, Pila)", @"badge": @"BERISH", @"off": @(0xad1c4), @"msg": @"✅ 3-To'plam qurollari berildi!"}
         ];
-    } else if (cat == 2) {
+    } else if (cat == 3) {
         items = @[
             @{@"title": @"🚫 Qidiruvni O'chirish (0 Yulduz)", @"badge": @"QULFLASH", @"off": @(0xadecc), @"msg": @"✅ Qidiruv 0 ga qulflab qo'yildi!"},
             @{@"title": @"⭐ Qidiruvni Pasaytirish (-1 Yulduz)", @"badge": @"PASAYTIRISH", @"off": @(0xad4b8), @"msg": @"✅ Qidiruv 1 darajaga kamaytirildi!"},
@@ -718,66 +822,103 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// Direct Game Window Attachment with Periodic Repositioning
+// Setup & Dynamic Loading
 // -----------------------------------------------------------------------------
-static void check_and_reposition(void) {
-    UIApplication *app = [UIApplication sharedApplication];
-    if (!app) return;
+static void setup_diro_ui(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_diroWindow && g_floatingButton && g_floatingButton.superview) {
+            [g_diroWindow.rootViewController.view bringSubviewToFront:g_floatingButton];
+            if (g_menuModal && !g_menuModal.hidden) {
+                [g_diroWindow.rootViewController.view bringSubviewToFront:g_menuModal];
+            }
+            return;
+        }
 
-    UIWindow *w = app.keyWindow;
-    if (!w && app.windows.count > 0) {
-        w = app.windows.firstObject;
-    }
-    if (!w) return;
+        NSLog(@"[DIRO] Launching Diro Mod Menu overlay...");
+        UIWindow *window = nil;
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                    window = [[DiroWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+                    break;
+                }
+            }
+        }
+        if (!window) {
+            window = [[DiroWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        }
+        g_diroWindow = (DiroWindow *)window;
 
-    CGRect b = w.bounds;
-    if (b.size.width < 50 || b.size.height < 50) return;
+        DiroRootViewController *vc = [[DiroRootViewController alloc] init];
+        window.rootViewController = vc;
+        window.hidden = NO;
 
-    if (!g_floatingButton || g_floatingButton.superview != w) {
-        if (g_floatingButton) [g_floatingButton removeFromSuperview];
-        if (g_menuModal) [g_menuModal removeFromSuperview];
-
+        CGSize sz = [UIScreen mainScreen].bounds.size;
         CGFloat btnSize = 52.0;
         CGFloat initialX = 14.0;
-        CGFloat initialY = (b.size.height - btnSize) / 2.0;
-
+        CGFloat initialY = (sz.height - btnSize) / 2.0;
         if (!g_floatingButton) {
             g_floatingButton = [[DiroFloatingButton alloc] initWithFrame:CGRectMake(initialX, initialY, btnSize, btnSize)];
         }
-        [w addSubview:g_floatingButton];
-        [w bringSubviewToFront:g_floatingButton];
+        [vc.view addSubview:g_floatingButton];
 
-        CGFloat mw = MIN(380.0, b.size.width - 24.0);
-        CGFloat mh = MIN(290.0, b.size.height - 24.0);
-        CGFloat mx = (b.size.width - mw) / 2.0;
-        CGFloat my = (b.size.height - mh) / 2.0;
-
+        CGFloat mw = MIN(380.0, sz.width - 24.0);
+        CGFloat mh = MIN(290.0, sz.height - 24.0);
+        CGFloat mx = (sz.width - mw) / 2.0;
+        CGFloat my = (sz.height - mh) / 2.0;
         if (!g_menuModal) {
             g_menuModal = [[DiroMenuModal alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
             g_menuModal.hidden = YES;
             g_menuModal.alpha = 0.0;
         }
-        [w addSubview:g_menuModal];
-        [w bringSubviewToFront:g_menuModal];
+        [vc.view addSubview:g_menuModal];
 
-        NSLog(@"[DIRO] Diro UI attached to active game window (%.0fx%.0f)", b.size.width, b.size.height);
-    } else {
-        [w bringSubviewToFront:g_floatingButton];
-        if (g_menuModal && !g_menuModal.hidden) {
-            [w bringSubviewToFront:g_menuModal];
+        // Hide legacy cheat windows if present
+        for (UIWindow *w in [UIApplication sharedApplication].windows) {
+            if (w != g_diroWindow) {
+                NSString *cls = NSStringFromClass([w class]);
+                if ([cls containsString:@"ButtonWindow"] || [cls containsString:@"IGWindow"] || [cls containsString:@"IGFloating"]) {
+                    w.hidden = YES;
+                    w.alpha = 0.0;
+                }
+            }
         }
-    }
+
+        NSLog(@"[DIRO] Diro Mod Menu is 100%% active and visible on screen!");
+    });
 }
 
+// Constructor: Executes automatically when GTASA.dylib is loaded by dyld
 __attribute__((constructor))
 static void diro_entry(void) {
-    NSLog(@"[DIRO] DiroMenu.dylib initialized!");
+    NSLog(@"[DIRO] Diro GTASA.dylib successfully loaded into GTA SA process!");
 
-    // Periodic check every 1.5s using GCD timer
-    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), (uint64_t)(1.5 * NSEC_PER_SEC), (uint64_t)(0.1 * NSEC_PER_SEC));
-    dispatch_source_set_event_handler(timer, ^{
-        check_and_reposition();
+    // 1. Load original engine dylib with GameCenterFix to ensure 100% loading stability
+    NSString *origPath = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"Frameworks/GTASA_Original.dylib"];
+    void *h = dlopen([origPath UTF8String], RTLD_NOW | RTLD_GLOBAL);
+    if (!h) {
+        h = dlopen("@executable_path/Frameworks/GTASA_Original.dylib", RTLD_NOW | RTLD_GLOBAL);
+    }
+    NSLog(@"[DIRO] Loaded GTASA_Original.dylib handle: %p", h);
+
+    // 2. Setup UI when application finishes launching
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                      object:nil
+                                                       queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification * _Nonnull note) {
+        setup_diro_ui();
+    }];
+
+    // Also fallback dispatch after 1.5, 3.0, and 5.0 seconds
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setup_diro_ui();
     });
-    dispatch_resume(timer);
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setup_diro_ui();
+    });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setup_diro_ui();
+    });
 }

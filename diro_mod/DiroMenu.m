@@ -3,10 +3,21 @@
 #import <mach-o/dyld.h>
 #import <objc/runtime.h>
 
-// Forward declarations
-@class DiroWindow;
-@class DiroFloatingButton;
-@class DiroMenuModal;
+// Forward full interfaces
+@interface DiroFloatingButton : UIView
+@end
+
+@interface DiroMenuModal : UIView
+- (void)toggleVisibility;
+- (void)showToast:(NSString *)message;
+- (void)refreshCheatsList;
+@end
+
+@interface DiroWindow : UIWindow
+@end
+
+@interface DiroRootViewController : UIViewController
+@end
 
 static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
@@ -36,9 +47,6 @@ static void trigger_native_cheat(uintptr_t offset) {
 // -----------------------------------------------------------------------------
 // DiroWindow: Transparent overlay window that passes touches through to the game
 // -----------------------------------------------------------------------------
-@interface DiroWindow : UIWindow
-@end
-
 @implementation DiroWindow
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -74,9 +82,6 @@ static void trigger_native_cheat(uintptr_t offset) {
 // -----------------------------------------------------------------------------
 // DiroRootViewController: Handles landscape orientation and responsive layout
 // -----------------------------------------------------------------------------
-@interface DiroRootViewController : UIViewController
-@end
-
 @implementation DiroRootViewController
 - (BOOL)shouldAutorotate {
     return YES;
@@ -110,9 +115,6 @@ static void trigger_native_cheat(uintptr_t offset) {
 // -----------------------------------------------------------------------------
 // DiroFloatingButton: Movable circular button with snap-to-edge animation
 // -----------------------------------------------------------------------------
-@interface DiroFloatingButton : UIView
-@end
-
 @implementation DiroFloatingButton
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -154,7 +156,7 @@ static void trigger_native_cheat(uintptr_t offset) {
 
 - (void)handleTap:(UITapGestureRecognizer *)gesture {
     if (g_menuModal) {
-        [g_menuModal performSelector:@selector(toggleVisibility)];
+        [g_menuModal toggleVisibility];
     }
 }
 
@@ -189,7 +191,7 @@ static void trigger_native_cheat(uintptr_t offset) {
 // -----------------------------------------------------------------------------
 // DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
 // -----------------------------------------------------------------------------
-@interface DiroMenuModal : UIView
+@interface DiroMenuModal ()
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UILabel *subTitleLabel;
 @property (nonatomic, strong) UILabel *toastLabel;

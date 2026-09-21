@@ -24,7 +24,9 @@ static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
 
-// Safe native cheat callers using ASLR slide
+// -----------------------------------------------------------------------------
+// ASLR Slide & Engine Pointers
+// -----------------------------------------------------------------------------
 static intptr_t get_gtasa_slide(void) {
     uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; i++) {
@@ -36,21 +38,181 @@ static intptr_t get_gtasa_slide(void) {
     return _dyld_get_image_vmaddr_slide(0);
 }
 
-static void trigger_native_cheat(uintptr_t offset) {
+// CPed* FindPlayerPed(int playerIndex = -1) at 0x190bfc
+static uintptr_t get_player_ped(void) {
     intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + offset;
-    void (*fn)(void) = (void(*)(void))addr;
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x190bfc;
+    uintptr_t (*fn)(int) = (uintptr_t(*)(int))addr;
     if (fn) {
-        fn();
+        return fn(-1);
     }
+    return 0;
 }
 
+// CVehicle* FindPlayerVehicle(int playerIndex = -1, bool bIncludeRemote = false) at 0x190f1c
+static uintptr_t get_player_vehicle(void) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x190f1c;
+    uintptr_t (*fn)(int, bool) = (uintptr_t(*)(int, bool))addr;
+    if (fn) {
+        return fn(-1, false);
+    }
+    return 0;
+}
+
+// CCheat::VehicleCheat(int modelId) at 0xaf4d4
 static void trigger_vehicle_cheat(int modelId) {
     intptr_t slide = get_gtasa_slide();
     uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0xaf4d4;
     void (*fn)(int) = (void(*)(int))addr;
     if (fn) {
         fn(modelId);
+    }
+}
+
+// Vehicle Color Changer: Sets primary and secondary colors at offsets 0x17d, 0x17e, 0x17f, 0x180 and calls CVehicle::SetColour at 0x26b140
+static BOOL change_vehicle_color(uint8_t primary, uint8_t secondary) {
+    uintptr_t veh = get_player_vehicle();
+    if (!veh) return NO;
+
+    *(uint8_t *)(veh + 0x17d) = primary;
+    *(uint8_t *)(veh + 0x17e) = secondary;
+    *(uint8_t *)(veh + 0x17f) = primary;
+    *(uint8_t *)(veh + 0x180) = secondary;
+
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x26b140;
+    void (*fn)(uintptr_t, uint8_t, uint8_t) = (void(*)(uintptr_t, uint8_t, uint8_t))addr;
+    if (fn) {
+        fn(veh, primary, secondary);
+    }
+    return YES;
+}
+
+// HESOYAM: Native cheat 0xad598 + direct memory write for $250k, full health, armor, and car repair
+static void trigger_hesoyam(void) {
+    intptr_t slide = get_gtasa_slide();
+
+    // 1. Call native cheat function at 0xad598
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0xad598;
+    void (*cheatFn)(void) = (void(*)(void))addr;
+    if (cheatFn) {
+        cheatFn();
+    }
+
+    // 2. Direct memory write for 100% guarantee
+    uintptr_t ped = get_player_ped();
+    if (ped) {
+        *(float *)(ped + 0x6ac) = 200.0f; // Health
+        *(float *)(ped + 0x6b4) = 150.0f; // Armor
+        *(float *)(ped + 0x6c4) = 200.0f; // Max Health
+    }
+
+    // 3. Repair vehicle if player is driving
+    uintptr_t veh = get_player_vehicle();
+    if (veh) {
+        *(float *)(veh + 0x634) = 1000.0f;
+    }
+
+    // 4. Player Money +$250,000 at CPlayerInfo (0x741a68 + 0xf0)
+    uintptr_t moneyPtr = (uintptr_t)slide + 0x100000000ULL + 0x741a68 + 0xf0;
+    *(int *)moneyPtr += 250000;
+}
+
+// God Mode (Cheksiz Jon & O'lmaslik): Bitfield 0xFF at 0x42 + GCD timer keeping health/armor pegged at max
+static BOOL g_godModeEnabled = NO;
+static dispatch_source_t g_godModeTimer = nil;
+
+static void set_god_mode(BOOL enable) {
+    g_godModeEnabled = enable;
+    if (enable) {
+        uintptr_t ped = get_player_ped();
+        if (ped) {
+            *(uint8_t *)(ped + 0x42) = 0xFF; // Immunity flags
+            *(float *)(ped + 0x6ac) = 200.0f;
+            *(float *)(ped + 0x6b4) = 150.0f;
+        }
+        if (!g_godModeTimer) {
+            g_godModeTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+            dispatch_source_set_timer(g_godModeTimer, DISPATCH_TIME_NOW, 0.25 * NSEC_PER_SEC, 0.05 * NSEC_PER_SEC);
+            dispatch_source_set_event_handler(g_godModeTimer, ^{
+                if (g_godModeEnabled) {
+                    uintptr_t p = get_player_ped();
+                    if (p) {
+                        *(uint8_t *)(p + 0x42) = 0xFF;
+                        *(float *)(p + 0x6ac) = 200.0f;
+                        *(float *)(p + 0x6b4) = 150.0f;
+                    }
+                    uintptr_t v = get_player_vehicle();
+                    if (v) {
+                        *(uint8_t *)(v + 0x42) = 0xFF;
+                        *(float *)(v + 0x634) = 1000.0f;
+                    }
+                }
+            });
+            dispatch_resume(g_godModeTimer);
+        }
+    } else {
+        if (g_godModeTimer) {
+            dispatch_source_cancel(g_godModeTimer);
+            g_godModeTimer = nil;
+        }
+        uintptr_t ped = get_player_ped();
+        if (ped) {
+            *(uint8_t *)(ped + 0x42) = 0x00;
+        }
+        uintptr_t veh = get_player_vehicle();
+        if (veh) {
+            *(uint8_t *)(veh + 0x42) = 0x00;
+        }
+    }
+}
+
+// Weather: CWeather::ForceWeatherNow(int weatherId) at 0x312b78
+static void set_weather(int weatherId) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x312b78;
+    void (*fn)(int) = (void(*)(int))addr;
+    if (fn) {
+        fn(weatherId);
+    }
+}
+
+// Wanted Level: 0x13bc8c with (stars * 4, 0, 0)
+static void set_wanted_level(int stars) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x13bc8c;
+    void (*fn)(int, int, int) = (void(*)(int, int, int))addr;
+    if (fn) {
+        fn(stars * 4, 0, 0);
+    }
+}
+
+// Weapons Packs: 1 -> 0xacc80, 2 -> 0xacf40, 3 -> 0xad1c4
+static void give_weapons_pack(int packNum) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t off = (packNum == 1) ? 0xacc80 : ((packNum == 2) ? 0xacf40 : 0xad1c4);
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + off;
+    void (*fn)(void) = (void(*)(void))addr;
+    if (fn) {
+        fn();
+    }
+}
+
+// Game Speed: CTimer::ms_fTimeScale at 0x741a30
+static void set_game_speed(float speed) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x741a30;
+    *(float *)addr = speed;
+}
+
+// Native Cheats: Jetpack (0xad6fc), Parachute (0xadb04), BlowUpCars (0xad66c), Wanted+ (0xad488), Wanted- (0xad4b8)
+static void trigger_native_cheat(uintptr_t offset) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + offset;
+    void (*fn)(void) = (void(*)(void))addr;
+    if (fn) {
+        fn();
     }
 }
 
@@ -331,8 +493,8 @@ static NSString *get_vehicle_name(int modelId) {
             g_floatingButton.frame = CGRectMake(targetX, targetY, f.size.width, f.size.height);
         }
         if (g_menuModal) {
-            CGFloat mw = MIN(380.0, size.width - 24.0);
-            CGFloat mh = MIN(290.0, size.height - 24.0);
+            CGFloat mw = MIN(410.0, size.width - 24.0);
+            CGFloat mh = MIN(310.0, size.height - 24.0);
             g_menuModal.frame = CGRectMake((size.width - mw) / 2.0, (size.height - mh) / 2.0, mw, mh);
         }
     } completion:nil];
@@ -416,7 +578,7 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// DiroMenuModal: Sleek dark acrylic cheat hub with categories and instant cheats
+// DiroMenuModal: Full Modern Cheat Hub with 5 Categories
 // -----------------------------------------------------------------------------
 @interface DiroMenuModal () <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
@@ -425,6 +587,9 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UISegmentedControl *segmentedControl;
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UITextField *idTextField;
+@property (nonatomic, strong) UITextField *colorTextField;
+@property (nonatomic, strong) UISwitch *godModeSwitch;
+@property (nonatomic, strong) UILabel *godModeStatusBadge;
 @property (nonatomic, strong) NSTimer *toastTimer;
 @end
 
@@ -458,19 +623,19 @@ static NSString *get_vehicle_name(int modelId) {
 
     // Crown Icon & Title
     self.titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 4, w - 60, 20)];
-    self.titleLabel.text = @"👑 DIRO MOD MENU";
-    self.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    self.titleLabel.text = @"👑 DIRO MOD MENU • GTA SAN ANDREAS";
+    self.titleLabel.font = [UIFont boldSystemFontOfSize:13];
     self.titleLabel.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
     [headerView addSubview:self.titleLabel];
 
     // Subtitle
     self.subTitleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 24, w - 60, 14)];
-    self.subTitleLabel.text = @"GTA San Andreas iOS • 100% Oflayn & Tekin";
+    self.subTitleLabel.text = @"100% Oflayn • Registratsiyasiz • Pro VIP Funksiyalar";
     self.subTitleLabel.font = [UIFont systemFontOfSize:10];
     self.subTitleLabel.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
     [headerView addSubview:self.subTitleLabel];
 
-    // Close button (X)
+    // Close button (✕)
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     closeBtn.frame = CGRectMake(w - 38, 6, 32, 32);
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
@@ -480,9 +645,9 @@ static NSString *get_vehicle_name(int modelId) {
     [headerView addSubview:closeBtn];
 
     // Toast status notification banner
-    self.toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 48, w - 20, 20)];
+    self.toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 48, w - 20, 22)];
     self.toastLabel.backgroundColor = [UIColor colorWithRed:0.15 green:0.75 blue:0.35 alpha:0.25];
-    self.toastLabel.layer.cornerRadius = 4;
+    self.toastLabel.layer.cornerRadius = 5;
     self.toastLabel.layer.borderColor = [UIColor colorWithRed:0.15 green:0.80 blue:0.40 alpha:0.8].CGColor;
     self.toastLabel.layer.borderWidth = 0.8;
     self.toastLabel.clipsToBounds = YES;
@@ -492,10 +657,10 @@ static NSString *get_vehicle_name(int modelId) {
     self.toastLabel.hidden = YES;
     [self addSubview:self.toastLabel];
 
-    // Category segmented control
-    NSArray *categories = @[@"🚗 Avtolar", @"🛡️ O'yinchi", @"🔫 Qurollar", @"🚓 Qidiruv"];
+    // Category segmented control (5 tabs)
+    NSArray *categories = @[@"🚗 Avto", @"🎨 Rang", @"🛡️ O'yinchi", @"🔫 Qurol", @"🌦️ Havo"];
     self.segmentedControl = [[UISegmentedControl alloc] initWithItems:categories];
-    self.segmentedControl.frame = CGRectMake(10, 72, w - 20, 28);
+    self.segmentedControl.frame = CGRectMake(8, 73, w - 16, 28);
     self.segmentedControl.selectedSegmentIndex = 0;
     if (@available(iOS 13.0, *)) {
         self.segmentedControl.selectedSegmentTintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.85];
@@ -509,7 +674,7 @@ static NSString *get_vehicle_name(int modelId) {
 
     // Scrollable cheat list
     CGFloat listY = 106.0;
-    self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(10, listY, w - 20, self.bounds.size.height - listY - 8.0)];
+    self.scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(8, listY, w - 16, self.bounds.size.height - listY - 8.0)];
     self.scrollView.showsVerticalScrollIndicator = YES;
     self.scrollView.alwaysBounceVertical = YES;
     [self addSubview:self.scrollView];
@@ -529,6 +694,7 @@ static NSString *get_vehicle_name(int modelId) {
         } completion:nil];
     } else {
         [self.idTextField resignFirstResponder];
+        [self.colorTextField resignFirstResponder];
         [UIView animateWithDuration:0.2 animations:^{
             self.transform = CGAffineTransformMakeScale(0.85, 0.85);
             self.alpha = 0.0;
@@ -548,7 +714,7 @@ static NSString *get_vehicle_name(int modelId) {
         self.toastLabel.alpha = 1.0;
     }];
 
-    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.5 target:self selector:@selector(hideToast) userInfo:nil repeats:NO];
+    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.8 target:self selector:@selector(hideToast) userInfo:nil repeats:NO];
 }
 
 - (void)hideToast {
@@ -561,15 +727,23 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)categoryChanged:(UISegmentedControl *)sender {
     [self.idTextField resignFirstResponder];
+    [self.colorTextField resignFirstResponder];
     [self refreshCheatsList];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
     [textField resignFirstResponder];
-    [self spawnByIdTapped];
+    if (textField == self.idTextField) {
+        [self spawnByIdTapped];
+    } else if (textField == self.colorTextField) {
+        [self applyCustomColorTapped];
+    }
     return YES;
 }
 
+// -----------------------------------------------------------------------------
+// UI Builder for each category
+// -----------------------------------------------------------------------------
 - (void)refreshCheatsList {
     for (UIView *v in self.scrollView.subviews) {
         [v removeFromSuperview];
@@ -579,7 +753,9 @@ static NSString *get_vehicle_name(int modelId) {
     CGFloat btnW = self.scrollView.bounds.size.width;
     CGFloat curY = 0.0;
 
-    // Category 0: Vehicles + ID Spawner
+    // =========================================================================
+    // Category 0: Mashinalar (Vehicle Spawner + ID Spawner)
+    // =========================================================================
     if (cat == 0) {
         // Vehicle Spawner Card
         UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 76)];
@@ -595,7 +771,6 @@ static NSString *get_vehicle_name(int modelId) {
         cardTitle.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
         [card addSubview:cardTitle];
 
-        // TextField
         self.idTextField = [[UITextField alloc] initWithFrame:CGRectMake(8, 28, btnW - 110, 38)];
         self.idTextField.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
         self.idTextField.layer.cornerRadius = 6;
@@ -612,7 +787,6 @@ static NSString *get_vehicle_name(int modelId) {
         }
         [card addSubview:self.idTextField];
 
-        // Spawn Button
         UIButton *spawnBtn = [UIButton buttonWithType:UIButtonTypeCustom];
         spawnBtn.frame = CGRectMake(btnW - 96, 28, 88, 38);
         spawnBtn.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
@@ -628,26 +802,24 @@ static NSString *get_vehicle_name(int modelId) {
 
         // Quick popular vehicles list
         NSArray *vList = @[
-            @{@"title": @"🏎️ Infernus Sportkar (ID: 411)", @"badge": @"SPAWN", @"vid": @(411)},
-            @{@"title": @"🏎️ Bullet Superkar (ID: 541)", @"badge": @"SPAWN", @"vid": @(541)},
-            @{@"title": @"🏎️ Cheetah (ID: 415)", @"badge": @"SPAWN", @"vid": @(415)},
-            @{@"title": @"🏎️ Turismo (ID: 451)", @"badge": @"SPAWN", @"vid": @(451)},
-            @{@"title": @"🏎️ Banshee (ID: 429)", @"badge": @"SPAWN", @"vid": @(429)},
-            @{@"title": @"🚗 Sultan 4-Eshik Drift (ID: 560)", @"badge": @"SPAWN", @"vid": @(560)},
-            @{@"title": @"🚗 Elegy Drift (ID: 562)", @"badge": @"SPAWN", @"vid": @(562)},
-            @{@"title": @"🚗 Buffalo (ID: 402)", @"badge": @"SPAWN", @"vid": @(402)},
-            @{@"title": @"🚗 Jester Tyuning (ID: 559)", @"badge": @"SPAWN", @"vid": @(559)},
-            @{@"title": @"🏍️ NRG-500 Tezkor Mototsikl (ID: 522)", @"badge": @"SPAWN", @"vid": @(522)},
-            @{@"title": @"🏍️ Sanchez Krossbayk (ID: 468)", @"badge": @"SPAWN", @"vid": @(468)},
-            @{@"title": @"🚗 Rhino Tank (ID: 432)", @"badge": @"SPAWN", @"vid": @(432)},
-            @{@"title": @"✈️ Hydra Qiruvchi Samolyot (ID: 520)", @"badge": @"SPAWN", @"vid": @(520)},
-            @{@"title": @"🚁 Hunter Vertolyot (ID: 425)", @"badge": @"SPAWN", @"vid": @(425)},
-            @{@"title": @"🚙 Monster Truck (ID: 444)", @"badge": @"SPAWN", @"vid": @(444)},
-            @{@"title": @"🚤 Vortex Kema (ID: 539)", @"badge": @"SPAWN", @"vid": @(539)},
-            @{@"title": @"💥 Barcha Mashinalarni Portlatish", @"badge": @"BOOM", @"off": @(0xad66c), @"msg": @"💥 Barcha mashinalar portlatildi!"}
+            @{@"title": @"🏎️ Infernus Superkar", @"sub": @"Eng mashhur sportkar", @"vid": @(411)},
+            @{@"title": @"🏎️ Bullet Superkar", @"sub": @"Tezkor Ford GT modeli", @"vid": @(541)},
+            @{@"title": @"🏎️ Cheetah Superkar", @"sub": @"Klassik Ferrari modeli", @"vid": @(415)},
+            @{@"title": @"🏎️ Turismo Superkar", @"sub": @"Tezkor poyga mashinasi", @"vid": @(451)},
+            @{@"title": @"🚗 Sultan 4-Eshik", @"sub": @"Drift va tyuning qiroli", @"vid": @(560)},
+            @{@"title": @"🚗 Elegy Sport", @"sub": @"Yaponiya drift afsonasi", @"vid": @(562)},
+            @{@"title": @"🚗 Buffalo Sport", @"sub": @"Muskullar avtomobili", @"vid": @(402)},
+            @{@"title": @"🏍️ NRG-500 Mototsikl", @"sub": @"O'yindagi eng tezkor mototsikl", @"vid": @(522)},
+            @{@"title": @"🏍️ Sanchez Krossbayk", @"sub": @"Tog' va sakrash mototsikli", @"vid": @(468)},
+            @{@"title": @"🚗 Rhino Tank", @"sub": @"Buzilmas va o't ochuvchi tank", @"vid": @(432)},
+            @{@"title": @"✈️ Hydra Qiruvchi Samolyot", @"sub": @"Harbiy reaktiv qiruvchi", @"vid": @(520)},
+            @{@"title": @"🚁 Hunter Vertolyot", @"sub": @"Pulemyotli harbiy vertolyot", @"vid": @(425)},
+            @{@"title": @"🚙 Monster Truck", @"sub": @"Katta g'ildirakli jip", @"vid": @(444)},
+            @{@"title": @"🚤 Vortex Kema / Hoverkraft", @"sub": @"Suvda ham quruqlikda yuradi", @"vid": @(539)},
+            @{@"title": @"💥 Barcha Mashinalarni Portlatish", @"sub": @"Atrofdagi barcha avtolarni portlatadi", @"off": @(0xad66c), @"msg": @"💥 Barcha mashinalar portlatildi!"}
         ];
 
-        CGFloat btnH = 36.0;
+        CGFloat btnH = 38.0;
         CGFloat gap = 6.0;
         for (NSDictionary *dict in vList) {
             UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -658,16 +830,23 @@ static NSString *get_vehicle_name(int modelId) {
             btn.layer.borderWidth = 0.8;
             btn.clipsToBounds = YES;
 
-            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, btnW - 80, btnH)];
+            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 3, btnW - 85, 18)];
             lbl.text = dict[@"title"];
             lbl.font = [UIFont boldSystemFontOfSize:12];
             lbl.textColor = [UIColor whiteColor];
             lbl.userInteractionEnabled = NO;
             [btn addSubview:lbl];
 
-            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(btnW - 68, (btnH - 18) / 2.0, 60, 18)];
-            badge.text = dict[@"badge"];
-            badge.font = [UIFont boldSystemFontOfSize:9];
+            UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(10, 20, btnW - 85, 14)];
+            sub.text = dict[@"sub"];
+            sub.font = [UIFont systemFontOfSize:9.5];
+            sub.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
+            sub.userInteractionEnabled = NO;
+            [btn addSubview:sub];
+
+            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(btnW - 72, (btnH - 20) / 2.0, 64, 20)];
+            badge.text = dict[@"vid"] ? [NSString stringWithFormat:@"ID %d", [dict[@"vid"] intValue]] : @"BOOM";
+            badge.font = [UIFont boldSystemFontOfSize:10];
             badge.textColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
             badge.textAlignment = NSTextAlignmentCenter;
             badge.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.15];
@@ -687,68 +866,464 @@ static NSString *get_vehicle_name(int modelId) {
         return;
     }
 
-    NSArray *items = nil;
+    // =========================================================================
+    // Category 1: Mashina Rangi (Vehicle Color Changer)
+    // =========================================================================
     if (cat == 1) {
-        items = @[
-            @{@"title": @"❤️ Cheksiz Jon (God Mode)", @"badge": @"FAOL", @"off": @(0xade84), @"msg": @"✅ Cheksiz Jon (God Mode) faollashtirildi!"},
-            @{@"title": @"💰 HESOYAM ($250,000 + Jon + Bronya)", @"badge": @"BERISH", @"off": @(0xad3d4), @"msg": @"✅ $250,000 va Bronya berildi!"},
-            @{@"title": @"♾️ Cheksiz O'q-Dori (Infinite Ammo)", @"badge": @"FAOL", @"off": @(0xade3c), @"msg": @"✅ Cheksiz O'q-Dori yoqildi!"},
-            @{@"title": @"🚀 Jetpack Chiqarish", @"badge": @"SPAWN", @"off": @(0xad6fc), @"msg": @"✅ Jetpack chiqarildi!"},
-            @{@"title": @"⚡ Tez Harakat (Fast Motion)", @"badge": @"FAOL", @"off": @(0xae76c), @"msg": @"✅ Tez harakat faollashtirildi!"}
+        // Info card
+        UIView *infoCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 30)];
+        infoCard.backgroundColor = [UIColor colorWithRed:0.11 green:0.11 blue:0.15 alpha:1.0];
+        infoCard.layer.cornerRadius = 6.0;
+        infoCard.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:0.5].CGColor;
+        infoCard.layer.borderWidth = 0.8;
+
+        UILabel *infoLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, 0, btnW - 16, 30)];
+        infoLbl.text = @"🚗 Mashinaga o'tiring va istalgan rangni bosing:";
+        infoLbl.font = [UIFont boldSystemFontOfSize:11];
+        infoLbl.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [infoCard addSubview:infoLbl];
+        [self.scrollView addSubview:infoCard];
+        curY += 36.0;
+
+        // Color Palettes Grid (12 presets)
+        NSArray *colors = @[
+            @{@"name": @"⬛ Qora", @"id": @(0), @"bg": [UIColor colorWithWhite:0.08 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"⬜ Oq", @"id": @(1), @"bg": [UIColor colorWithWhite:0.92 alpha:1.0], @"text": [UIColor blackColor]},
+            @{@"name": @"🟥 Qizil", @"id": @(3), @"bg": [UIColor colorWithRed:0.85 green:0.15 blue:0.15 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"🟦 Ko'k", @"id": @(8), @"bg": [UIColor colorWithRed:0.15 green:0.35 blue:0.85 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"🟨 Oltin", @"id": @(6), @"bg": [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0], @"text": [UIColor blackColor]},
+            @{@"name": @"🟩 Yashil", @"id": @(16), @"bg": [UIColor colorWithRed:0.15 green:0.75 blue:0.25 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"🟪 Binafsha", @"id": @(67), @"bg": [UIColor colorWithRed:0.55 green:0.15 blue:0.85 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"🌸 Pushti", @"id": @(126), @"bg": [UIColor colorWithRed:1.00 green:0.30 blue:0.70 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"🔘 Kumush", @"id": @(79), @"bg": [UIColor colorWithWhite:0.70 alpha:1.0], @"text": [UIColor blackColor]},
+            @{@"name": @"🟧 To'q Sariq", @"id": @(7), @"bg": [UIColor colorWithRed:1.00 green:0.45 blue:0.05 alpha:1.0], @"text": [UIColor whiteColor]},
+            @{@"name": @"🔷 Moviy", @"id": @(9), @"bg": [UIColor colorWithRed:0.15 green:0.75 blue:0.95 alpha:1.0], @"text": [UIColor blackColor]},
+            @{@"name": @"🟤 Bronza", @"id": @(36), @"bg": [UIColor colorWithRed:0.60 green:0.25 blue:0.15 alpha:1.0], @"text": [UIColor whiteColor]}
         ];
-    } else if (cat == 2) {
-        items = @[
-            @{@"title": @"🔫 Qurollar To'plami 1 (Kastet, Bita, Pistol)", @"badge": @"BERISH", @"off": @(0xacc80), @"msg": @"✅ 1-To'plam qurollari berildi!"},
-            @{@"title": @"💣 Qurollar To'plami 2 (Deagle, Spas, MP5, M4)", @"badge": @"BERISH", @"off": @(0xacf40), @"msg": @"✅ 2-To'plam qurollari berildi!"},
-            @{@"title": @"🚀 Qurollar To'plami 3 (Minigun, Bazuka, Pila)", @"badge": @"BERISH", @"off": @(0xad1c4), @"msg": @"✅ 3-To'plam qurollari berildi!"}
-        ];
-    } else if (cat == 3) {
-        items = @[
-            @{@"title": @"🚫 Qidiruvni O'chirish (0 Yulduz)", @"badge": @"QULFLASH", @"off": @(0xadecc), @"msg": @"✅ Qidiruv 0 ga qulflab qo'yildi!"},
-            @{@"title": @"⭐ Qidiruvni Pasaytirish (-1 Yulduz)", @"badge": @"PASAYTIRISH", @"off": @(0xad4b8), @"msg": @"✅ Qidiruv 1 darajaga kamaytirildi!"},
-            @{@"title": @"🚨 Qidiruvni Ko'tarish (+1 Yulduz)", @"badge": @"OSHIRISH", @"off": @(0xad488), @"msg": @"✅ Qidiruv 1 darajaga oshirildi!"},
-            @{@"title": @"⭐️ 6 Yulduz Qidiruv (Maksimal)", @"badge": @"MAX", @"off": @(0xadedc), @"msg": @"✅ 6 Yulduz qidiruv berildi!"}
-        ];
+
+        CGFloat colGap = 6.0;
+        int numCols = 4;
+        CGFloat colBtnW = (btnW - (numCols - 1) * colGap) / (CGFloat)numCols;
+        CGFloat colBtnH = 34.0;
+
+        for (int i = 0; i < colors.count; i++) {
+            NSDictionary *cDict = colors[i];
+            int r = i / numCols;
+            int c = i % numCols;
+            CGFloat bx = c * (colBtnW + colGap);
+            CGFloat by = curY + r * (colBtnH + colGap);
+
+            UIButton *cBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+            cBtn.frame = CGRectMake(bx, by, colBtnW, colBtnH);
+            cBtn.backgroundColor = cDict[@"bg"];
+            cBtn.layer.cornerRadius = 6.0;
+            cBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+            cBtn.layer.borderWidth = 1.0;
+            cBtn.clipsToBounds = YES;
+
+            [cBtn setTitle:cDict[@"name"] forState:UIControlStateNormal];
+            [cBtn setTitleColor:cDict[@"text"] forState:UIControlStateNormal];
+            cBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+
+            objc_setAssociatedObject(cBtn, "color_id", cDict[@"id"], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [cBtn addTarget:self action:@selector(presetColorTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+            [self.scrollView addSubview:cBtn];
+        }
+
+        int totalRows = (int)((colors.count + numCols - 1) / numCols);
+        curY += totalRows * (colBtnH + colGap) + 8.0;
+
+        // Custom Color ID Card
+        UIView *customCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 76)];
+        customCard.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
+        customCard.layer.cornerRadius = 8.0;
+        customCard.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.6].CGColor;
+        customCard.layer.borderWidth = 1.0;
+        customCard.clipsToBounds = YES;
+
+        UILabel *customTitle = [[UILabel alloc] initWithFrame:CGRectMake(8, 6, btnW - 16, 16)];
+        customTitle.text = @"🔢 Qo'lda rang ID kiritish (0 dan 127 gacha):";
+        customTitle.font = [UIFont boldSystemFontOfSize:11];
+        customTitle.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [customCard addSubview:customTitle];
+
+        self.colorTextField = [[UITextField alloc] initWithFrame:CGRectMake(8, 28, btnW - 110, 38)];
+        self.colorTextField.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        self.colorTextField.layer.cornerRadius = 6;
+        self.colorTextField.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+        self.colorTextField.layer.borderWidth = 0.8;
+        self.colorTextField.textColor = [UIColor whiteColor];
+        self.colorTextField.font = [UIFont boldSystemFontOfSize:14];
+        self.colorTextField.placeholder = @"Masalan: 3";
+        self.colorTextField.keyboardType = UIKeyboardTypeNumberPad;
+        self.colorTextField.textAlignment = NSTextAlignmentCenter;
+        self.colorTextField.delegate = self;
+        if (@available(iOS 13.0, *)) {
+            self.colorTextField.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        }
+        [customCard addSubview:self.colorTextField];
+
+        UIButton *applyBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        applyBtn.frame = CGRectMake(btnW - 96, 28, 88, 38);
+        applyBtn.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+        applyBtn.layer.cornerRadius = 6;
+        [applyBtn setTitle:@"🎨 BO'YASH" forState:UIControlStateNormal];
+        [applyBtn setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+        applyBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
+        [applyBtn addTarget:self action:@selector(applyCustomColorTapped) forControlEvents:UIControlEventTouchUpInside];
+        [customCard addSubview:applyBtn];
+
+        [self.scrollView addSubview:customCard];
+        curY += 84.0;
+
+        self.scrollView.contentSize = CGSizeMake(btnW, curY + 12.0);
+        return;
     }
 
-    CGFloat btnH = 36.0;
-    CGFloat gap = 6.0;
+    // =========================================================================
+    // Category 2: O'yinchi (Player Health, God Mode, Money, Motion)
+    // =========================================================================
+    if (cat == 2) {
+        // 1. God Mode Card with Switch
+        UIView *godCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 54)];
+        godCard.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.16 alpha:1.0];
+        godCard.layer.cornerRadius = 8.0;
+        godCard.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.7].CGColor;
+        godCard.layer.borderWidth = 1.0;
+        godCard.clipsToBounds = YES;
 
-    for (NSDictionary *dict in items) {
-        UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
-        btn.frame = CGRectMake(0, curY, btnW, btnH);
-        btn.backgroundColor = [UIColor colorWithRed:0.13 green:0.13 blue:0.16 alpha:0.95];
-        btn.layer.cornerRadius = 8.0;
-        btn.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:0.6].CGColor;
-        btn.layer.borderWidth = 0.8;
-        btn.clipsToBounds = YES;
+        UILabel *godTitle = [[UILabel alloc] initWithFrame:CGRectMake(10, 8, btnW - 80, 18)];
+        godTitle.text = @"👑 Cheksiz Jon & O'lmaslik (God Mode)";
+        godTitle.font = [UIFont boldSystemFontOfSize:12];
+        godTitle.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [godCard addSubview:godTitle];
 
-        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 0, btnW - 80, btnH)];
-        lbl.text = dict[@"title"];
-        lbl.font = [UIFont boldSystemFontOfSize:12];
-        lbl.textColor = [UIColor whiteColor];
-        lbl.userInteractionEnabled = NO;
-        [btn addSubview:lbl];
+        UILabel *godSub = [[UILabel alloc] initWithFrame:CGRectMake(10, 28, btnW - 80, 16)];
+        godSub.text = @"CJ va minib turgan mashinasi mutlaqo o'lmas bo'ladi";
+        godSub.font = [UIFont systemFontOfSize:9.5];
+        godSub.textColor = [UIColor colorWithWhite:0.70 alpha:1.0];
+        [godCard addSubview:godSub];
 
-        UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(btnW - 68, (btnH - 18) / 2.0, 60, 18)];
-        badge.text = dict[@"badge"];
-        badge.font = [UIFont boldSystemFontOfSize:9];
-        badge.textColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
-        badge.textAlignment = NSTextAlignmentCenter;
-        badge.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.15];
-        badge.layer.cornerRadius = 4;
-        badge.clipsToBounds = YES;
-        badge.userInteractionEnabled = NO;
-        [btn addSubview:badge];
+        self.godModeSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(btnW - 62, 11, 51, 31)];
+        self.godModeSwitch.on = g_godModeEnabled;
+        self.godModeSwitch.onTintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+        [self.godModeSwitch addTarget:self action:@selector(godModeSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+        [godCard addSubview:self.godModeSwitch];
 
-        objc_setAssociatedObject(btn, "cheat_info", dict, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [btn addTarget:self action:@selector(cheatButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [self.scrollView addSubview:godCard];
+        curY += 60.0;
 
-        [self.scrollView addSubview:btn];
-        curY += btnH + gap;
+        // 2. Action cheats list
+        NSArray *pCheats = @[
+            @{
+                @"title": @"💰 HESOYAM: $250,000 + 100% Jon + Bronya + Avto",
+                @"sub": @"Darhol pul, to'liq salomatlik beradi va avtoni tuzatadi",
+                @"badge": @"BERISH",
+                @"action": @"hesoyam"
+            },
+            @{
+                @"title": @"🚀 Jetpack Chiqarish (Uchish Ryukzaki)",
+                @"sub": @"CJ orqasiga havoda uchish reaktiv ryukzaki beradi",
+                @"badge": @"UCHISH",
+                @"off": @(0xad6fc),
+                @"msg": @"✅ Jetpack chiqarildi!"
+            },
+            @{
+                @"title": @"🪂 Parashyut Berish",
+                @"sub": @"Balandlikdan xavfsiz sakrash parashyuti",
+                @"badge": @"BERISH",
+                @"off": @(0xadb04),
+                @"msg": @"✅ Parashyut berildi!"
+            },
+            @{
+                @"title": @"⚡ Tez Harakat (Fast Motion 4x)",
+                @"sub": @"O'yin jarayonini 4 baravar tezlashtiradi",
+                @"badge": @"4X TEZ",
+                @"speed": @(4.0f),
+                @"msg": @"⚡ O'yin tezligi 4 baravar oshirildi!"
+            },
+            @{
+                @"title": @"⏳ Sekin Harakat (Slow Motion 0.25x)",
+                @"sub": @"O'yin jarayonini 4 baravar sekinlashtiradi",
+                @"badge": @"0.25X",
+                @"speed": @(0.25f),
+                @"msg": @"⏳ Sekin harakat yoqildi!"
+            },
+            @{
+                @"title": @"🔄 Standart Tezlik (Normal Motion 1x)",
+                @"sub": @"O'yin tezligini normal holatiga qaytaradi",
+                @"badge": @"1.0X",
+                @"speed": @(1.0f),
+                @"msg": @"🔄 O'yin tezligi normal holatga keltirildi!"
+            }
+        ];
+
+        CGFloat btnH = 40.0;
+        CGFloat gap = 6.0;
+        for (NSDictionary *dict in pCheats) {
+            UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+            btn.frame = CGRectMake(0, curY, btnW, btnH);
+            btn.backgroundColor = [UIColor colorWithRed:0.13 green:0.13 blue:0.16 alpha:0.95];
+            btn.layer.cornerRadius = 8.0;
+            btn.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:0.6].CGColor;
+            btn.layer.borderWidth = 0.8;
+            btn.clipsToBounds = YES;
+
+            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 4, btnW - 85, 18)];
+            lbl.text = dict[@"title"];
+            lbl.font = [UIFont boldSystemFontOfSize:12];
+            lbl.textColor = [UIColor whiteColor];
+            lbl.userInteractionEnabled = NO;
+            [btn addSubview:lbl];
+
+            UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(10, 22, btnW - 85, 14)];
+            sub.text = dict[@"sub"];
+            sub.font = [UIFont systemFontOfSize:9.5];
+            sub.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
+            sub.userInteractionEnabled = NO;
+            [btn addSubview:sub];
+
+            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(btnW - 74, (btnH - 20) / 2.0, 66, 20)];
+            badge.text = dict[@"badge"];
+            badge.font = [UIFont boldSystemFontOfSize:10];
+            badge.textColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+            badge.textAlignment = NSTextAlignmentCenter;
+            badge.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.15];
+            badge.layer.cornerRadius = 4;
+            badge.clipsToBounds = YES;
+            badge.userInteractionEnabled = NO;
+            [btn addSubview:badge];
+
+            objc_setAssociatedObject(btn, "player_cheat", dict, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [btn addTarget:self action:@selector(playerCheatTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+            [self.scrollView addSubview:btn];
+            curY += btnH + gap;
+        }
+
+        self.scrollView.contentSize = CGSizeMake(btnW, curY + 12.0);
+        return;
     }
 
-    self.scrollView.contentSize = CGSizeMake(btnW, curY + 6.0);
+    // =========================================================================
+    // Category 3: Qurollar (Weapons Packs 1, 2, 3)
+    // =========================================================================
+    if (cat == 3) {
+        NSArray *wPacks = @[
+            @{
+                @"title": @"🔫 1-To'plam (Ko'cha qurollari)",
+                @"sub": @"Kastet, Bita, 9mm, Shotgun, Micro Uzi, AK-47, Vintovka, Bazuka, Molotov",
+                @"badge": @"1-TO'PLAM",
+                @"pack": @(1)
+            },
+            @{
+                @"title": @"💣 2-To'plam (Professional qurollar)",
+                @"sub": @"Pichoq, Desert Eagle, Qirqma Shotgun, TEC-9, M4, Snayper, O't sochgich, Granata",
+                @"badge": @"2-TO'PLAM",
+                @"pack": @(2)
+            },
+            @{
+                @"title": @"🚀 3-To'plam (Maxsus Kuchlar qurollari)",
+                @"sub": @"Benzopila, O'chirgichli Pistol, SPAS-12, MP5, M4, Minigun, C4 Portlovchi Paket",
+                @"badge": @"3-TO'PLAM",
+                @"pack": @(3)
+            }
+        ];
+
+        CGFloat btnH = 50.0;
+        CGFloat gap = 8.0;
+        for (NSDictionary *dict in wPacks) {
+            UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+            btn.frame = CGRectMake(0, curY, btnW, btnH);
+            btn.backgroundColor = [UIColor colorWithRed:0.13 green:0.13 blue:0.16 alpha:0.95];
+            btn.layer.cornerRadius = 8.0;
+            btn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.5].CGColor;
+            btn.layer.borderWidth = 1.0;
+            btn.clipsToBounds = YES;
+
+            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 6, btnW - 90, 18)];
+            lbl.text = dict[@"title"];
+            lbl.font = [UIFont boldSystemFontOfSize:13];
+            lbl.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+            lbl.userInteractionEnabled = NO;
+            [btn addSubview:lbl];
+
+            UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(10, 26, btnW - 90, 18)];
+            sub.text = dict[@"sub"];
+            sub.font = [UIFont systemFontOfSize:9.5];
+            sub.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+            sub.userInteractionEnabled = NO;
+            [btn addSubview:sub];
+
+            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(btnW - 84, (btnH - 24) / 2.0, 76, 24)];
+            badge.text = dict[@"badge"];
+            badge.font = [UIFont boldSystemFontOfSize:10];
+            badge.textColor = [UIColor blackColor];
+            badge.textAlignment = NSTextAlignmentCenter;
+            badge.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+            badge.layer.cornerRadius = 5;
+            badge.clipsToBounds = YES;
+            badge.userInteractionEnabled = NO;
+            [btn addSubview:badge];
+
+            objc_setAssociatedObject(btn, "weapon_info", dict, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [btn addTarget:self action:@selector(weaponPackTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+            [self.scrollView addSubview:btn];
+            curY += btnH + gap;
+        }
+
+        self.scrollView.contentSize = CGSizeMake(btnW, curY + 12.0);
+        return;
+    }
+
+    // =========================================================================
+    // Category 4: Ob-Havo & Qidiruv (Weather & Wanted Level)
+    // =========================================================================
+    if (cat == 4) {
+        // Section 1: Ob-havo
+        UILabel *wHead = [[UILabel alloc] initWithFrame:CGRectMake(4, curY, btnW - 8, 16)];
+        wHead.text = @"🌦️ Ob-havoni o'zgartirish:";
+        wHead.font = [UIFont boldSystemFontOfSize:11];
+        wHead.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [self.scrollView addSubview:wHead];
+        curY += 20.0;
+
+        NSArray *weathers = @[
+            @{@"name": @"☀️ Quyoshli", @"id": @(0)},
+            @{@"name": @"⛅ Ochiq Havo", @"id": @(1)},
+            @{@"name": @"☁️ Bulutli", @"id": @(4)},
+            @{@"name": @"🌧️ Yomg'ir", @"id": @(9)},
+            @{@"name": @"🌫️ Tuman", @"id": @(8)},
+            @{@"name": @"🌪️ Qum Bo'roni", @"id": @(16)}
+        ];
+
+        CGFloat wGap = 6.0;
+        int wCols = 3;
+        CGFloat wBtnW = (btnW - (wCols - 1) * wGap) / (CGFloat)wCols;
+        CGFloat wBtnH = 34.0;
+
+        for (int i = 0; i < weathers.count; i++) {
+            NSDictionary *wDict = weathers[i];
+            int r = i / wCols;
+            int c = i % wCols;
+            CGFloat bx = c * (wBtnW + wGap);
+            CGFloat by = curY + r * (wBtnH + wGap);
+
+            UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+            btn.frame = CGRectMake(bx, by, wBtnW, wBtnH);
+            btn.backgroundColor = [UIColor colorWithRed:0.14 green:0.14 blue:0.18 alpha:1.0];
+            btn.layer.cornerRadius = 6.0;
+            btn.layer.borderColor = [UIColor colorWithWhite:0.3 alpha:0.6].CGColor;
+            btn.layer.borderWidth = 0.8;
+            [btn setTitle:wDict[@"name"] forState:UIControlStateNormal];
+            [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            btn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+
+            objc_setAssociatedObject(btn, "weather_id", wDict[@"id"], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [btn addTarget:self action:@selector(weatherButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+            [self.scrollView addSubview:btn];
+        }
+
+        curY += 2 * (wBtnH + wGap) + 12.0;
+
+        // Section 2: Politsiya Qidiruvi (Wanted Level)
+        UILabel *qHead = [[UILabel alloc] initWithFrame:CGRectMake(4, curY, btnW - 8, 16)];
+        qHead.text = @"🚨 Politsiya Qidiruv Darajasi (Wanted Level):";
+        qHead.font = [UIFont boldSystemFontOfSize:11];
+        qHead.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [self.scrollView addSubview:qHead];
+        curY += 20.0;
+
+        NSArray *wantedCheats = @[
+            @{
+                @"title": @"🚫 Qidiruvni Butunlay Yo'qotish (0 Yulduz)",
+                @"sub": @"Politsiya va qidiruvni butunlay to'xtatadi",
+                @"badge": @"0 YULDUZ",
+                @"stars": @(0)
+            },
+            @{
+                @"title": @"⭐ Qidiruvni Pasaytirish (-1 Yulduz)",
+                @"sub": @"Politsiya qidiruvini bir yulduzga kamaytiradi",
+                @"badge": @"-1 YULDUZ",
+                @"off": @(0xad4b8),
+                @"msg": @"✅ Qidiruv 1 darajaga kamaytirildi!"
+            },
+            @{
+                @"title": @"🚨 Qidiruvni Oshirish (+1 Yulduz)",
+                @"sub": @"Politsiya qidiruvini bir yulduzga ko'taradi",
+                @"badge": @"+1 YULDUZ",
+                @"off": @(0xad488),
+                @"msg": @"✅ Qidiruv 1 darajaga oshirildi!"
+            },
+            @{
+                @"title": @"⭐️⭐️⭐️⭐️⭐️⭐️ Maksimal 6 Yulduz Qidiruv",
+                @"sub": @"Tanklar, Armiya va Maxsus Kuchlarni chaqiradi",
+                @"badge": @"6 YULDUZ",
+                @"stars": @(6)
+            }
+        ];
+
+        CGFloat qBtnH = 38.0;
+        CGFloat qGap = 6.0;
+        for (NSDictionary *dict in wantedCheats) {
+            UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+            btn.frame = CGRectMake(0, curY, btnW, qBtnH);
+            btn.backgroundColor = [UIColor colorWithRed:0.13 green:0.13 blue:0.16 alpha:0.95];
+            btn.layer.cornerRadius = 8.0;
+            btn.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:0.6].CGColor;
+            btn.layer.borderWidth = 0.8;
+            btn.clipsToBounds = YES;
+
+            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(10, 3, btnW - 85, 18)];
+            lbl.text = dict[@"title"];
+            lbl.font = [UIFont boldSystemFontOfSize:11.5];
+            lbl.textColor = [UIColor whiteColor];
+            lbl.userInteractionEnabled = NO;
+            [btn addSubview:lbl];
+
+            UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(10, 20, btnW - 85, 14)];
+            sub.text = dict[@"sub"];
+            sub.font = [UIFont systemFontOfSize:9.5];
+            sub.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
+            sub.userInteractionEnabled = NO;
+            [btn addSubview:sub];
+
+            UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(btnW - 74, (qBtnH - 20) / 2.0, 66, 20)];
+            badge.text = dict[@"badge"];
+            badge.font = [UIFont boldSystemFontOfSize:9.5];
+            badge.textColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+            badge.textAlignment = NSTextAlignmentCenter;
+            badge.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.15];
+            badge.layer.cornerRadius = 4;
+            badge.clipsToBounds = YES;
+            badge.userInteractionEnabled = NO;
+            [btn addSubview:badge];
+
+            objc_setAssociatedObject(btn, "wanted_info", dict, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [btn addTarget:self action:@selector(wantedCheatTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+            [self.scrollView addSubview:btn];
+            curY += qBtnH + qGap;
+        }
+
+        self.scrollView.contentSize = CGSizeMake(btnW, curY + 12.0);
+        return;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Action Handlers
+// -----------------------------------------------------------------------------
+- (void)hapticImpact:(int)style {
+    if (@available(iOS 10.0, *)) {
+        UIImpactFeedbackStyle st = (style == 1) ? UIImpactFeedbackStyleHeavy : UIImpactFeedbackStyleMedium;
+        UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:st];
+        [gen prepare];
+        [gen impactOccurred];
+    }
 }
 
 - (void)spawnByIdTapped {
@@ -765,12 +1340,7 @@ static NSString *get_vehicle_name(int modelId) {
         return;
     }
 
-    if (@available(iOS 10.0, *)) {
-        UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
-        [gen prepare];
-        [gen impactOccurred];
-    }
-
+    [self hapticImpact:1];
     trigger_vehicle_cheat(vid);
     NSString *vName = get_vehicle_name(vid);
     [self showToast:[NSString stringWithFormat:@"✅ Paydo bo'ldi: ID %d (%@)", vid, vName]];
@@ -780,11 +1350,7 @@ static NSString *get_vehicle_name(int modelId) {
     NSDictionary *dict = objc_getAssociatedObject(sender, "cheat_info");
     if (!dict) return;
 
-    if (@available(iOS 10.0, *)) {
-        UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-        [gen prepare];
-        [gen impactOccurred];
-    }
+    [self hapticImpact:2];
 
     if (dict[@"vid"]) {
         int vid = [dict[@"vid"] intValue];
@@ -798,27 +1364,113 @@ static NSString *get_vehicle_name(int modelId) {
     }
 }
 
-- (void)cheatButtonTapped:(UIButton *)sender {
-    NSDictionary *dict = objc_getAssociatedObject(sender, "cheat_info");
-    if (!dict) return;
+- (void)presetColorTapped:(UIButton *)sender {
+    NSNumber *num = objc_getAssociatedObject(sender, "color_id");
+    if (!num) return;
 
-    uintptr_t off = [dict[@"off"] unsignedIntegerValue];
-    NSString *msg = dict[@"msg"];
+    int cid = [num intValue];
+    [self hapticImpact:2];
 
-    if (@available(iOS 10.0, *)) {
-        UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-        [gen prepare];
-        [gen impactOccurred];
+    BOOL ok = change_vehicle_color((uint8_t)cid, (uint8_t)cid);
+    if (ok) {
+        [self showToast:[NSString stringWithFormat:@"✅ Mashina rangi o'zgartirildi! (ID: %d)", cid]];
+    } else {
+        [self showToast:@"⚠️ Avval mashinaga o'tiring!"];
+    }
+}
+
+- (void)applyCustomColorTapped {
+    [self.colorTextField resignFirstResponder];
+    NSString *txt = [self.colorTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (txt.length == 0) {
+        [self showToast:@"⚠️ Rang ID sini kiriting! (0 - 127)"];
+        return;
     }
 
-    UIColor *origBg = sender.backgroundColor;
-    sender.backgroundColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.32 alpha:1.0];
-    [UIView animateWithDuration:0.25 animations:^{
-        sender.backgroundColor = origBg;
-    }];
+    int cid = [txt intValue];
+    if (cid < 0 || cid > 127) {
+        [self showToast:@"⚠️ Rang ID si 0 dan 127 oralig'ida bo'lishi kerak!"];
+        return;
+    }
 
-    trigger_native_cheat(off);
-    [self showToast:msg];
+    [self hapticImpact:2];
+    BOOL ok = change_vehicle_color((uint8_t)cid, (uint8_t)cid);
+    if (ok) {
+        [self showToast:[NSString stringWithFormat:@"✅ Mashina rangi o'zgartirildi! (ID: %d)", cid]];
+    } else {
+        [self showToast:@"⚠️ Avval mashinaga o'tiring!"];
+    }
+}
+
+- (void)godModeSwitchChanged:(UISwitch *)sender {
+    [self hapticImpact:1];
+    set_god_mode(sender.isOn);
+    if (sender.isOn) {
+        [self showToast:@"✅ God Mode (O'lmaslik) yoqildi! CJ va Avto 100% o'lmas!"];
+    } else {
+        [self showToast:@"❌ God Mode o'chirildi."];
+    }
+}
+
+- (void)playerCheatTapped:(UIButton *)sender {
+    NSDictionary *dict = objc_getAssociatedObject(sender, "player_cheat");
+    if (!dict) return;
+
+    [self hapticImpact:2];
+
+    if ([dict[@"action"] isEqualToString:@"hesoyam"]) {
+        trigger_hesoyam();
+        [self showToast:@"✅ $250,000, 100% Jon, Bronya berildi va Mashina tuzatildi!"];
+    } else if (dict[@"speed"]) {
+        float spd = [dict[@"speed"] floatValue];
+        set_game_speed(spd);
+        [self showToast:dict[@"msg"]];
+    } else if (dict[@"off"]) {
+        uintptr_t off = [dict[@"off"] unsignedIntegerValue];
+        trigger_native_cheat(off);
+        [self showToast:dict[@"msg"]];
+    }
+}
+
+- (void)weaponPackTapped:(UIButton *)sender {
+    NSDictionary *dict = objc_getAssociatedObject(sender, "weapon_info");
+    if (!dict) return;
+
+    [self hapticImpact:1];
+    int p = [dict[@"pack"] intValue];
+    give_weapons_pack(p);
+    [self showToast:[NSString stringWithFormat:@"✅ %d-To'plam qurollari berildi! (Ekranning o'ng tepasidagi belgi orqali almashtiring)", p]];
+}
+
+- (void)weatherButtonTapped:(UIButton *)sender {
+    NSNumber *wNum = objc_getAssociatedObject(sender, "weather_id");
+    if (!wNum) return;
+
+    [self hapticImpact:2];
+    int wid = [wNum intValue];
+    set_weather(wid);
+    [self showToast:[NSString stringWithFormat:@"✅ Ob-havo o'zgartirildi! (%@)", sender.titleLabel.text]];
+}
+
+- (void)wantedCheatTapped:(UIButton *)sender {
+    NSDictionary *dict = objc_getAssociatedObject(sender, "wanted_info");
+    if (!dict) return;
+
+    [self hapticImpact:2];
+
+    if (dict[@"stars"]) {
+        int stars = [dict[@"stars"] intValue];
+        set_wanted_level(stars);
+        if (stars == 0) {
+            [self showToast:@"✅ Barcha qidiruvlar o'chirildi! (0 Yulduz)"];
+        } else {
+            [self showToast:[NSString stringWithFormat:@"🚨 %d Yulduz qidiruv darajasi berildi!", stars]];
+        }
+    } else if (dict[@"off"]) {
+        uintptr_t off = [dict[@"off"] unsignedIntegerValue];
+        trigger_native_cheat(off);
+        [self showToast:dict[@"msg"]];
+    }
 }
 
 @end
@@ -864,8 +1516,8 @@ static void setup_diro_ui(void) {
         }
         [vc.view addSubview:g_floatingButton];
 
-        CGFloat mw = MIN(380.0, sz.width - 24.0);
-        CGFloat mh = MIN(290.0, sz.height - 24.0);
+        CGFloat mw = MIN(410.0, sz.width - 24.0);
+        CGFloat mh = MIN(310.0, sz.height - 24.0);
         CGFloat mx = (sz.width - mw) / 2.0;
         CGFloat my = (sz.height - mh) / 2.0;
         if (!g_menuModal) {
@@ -907,7 +1559,7 @@ static void diro_entry(void) {
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
                                                       object:nil
                                                        queue:[NSOperationQueue mainQueue]
-                                                  usingBlock:^(NSNotification * _Nonnull note) {
+                                                   usingBlock:^(NSNotification * _Nonnull note) {
         setup_diro_ui();
     }];
 

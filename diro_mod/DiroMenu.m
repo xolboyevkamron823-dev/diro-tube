@@ -89,6 +89,35 @@ static BOOL change_vehicle_color(uint8_t primary, uint8_t secondary) {
     return YES;
 }
 
+// CClock::SetGameClock(uint8_t hours, uint8_t minutes, uint8_t day) at 0x13bc8c
+// Global offsets: Hours: 0x72df0a, Minutes: 0x72df0b, Days: 0x72df0e
+static void set_game_time(uint8_t hours, uint8_t minutes) {
+    if (hours > 23) hours = 23;
+    if (minutes > 59) minutes = 59;
+
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x13bc8c;
+    void (*setClockFn)(uint8_t, uint8_t, uint8_t) = (void(*)(uint8_t, uint8_t, uint8_t))addr;
+    if (setClockFn) {
+        setClockFn(hours, minutes, 0);
+    }
+
+    // Direct memory backup for 100% immediate effect
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0a) = hours;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0b) = minutes;
+    *(uint16_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0c) = 0;
+}
+
+static void add_game_hours(int deltaHours) {
+    intptr_t slide = get_gtasa_slide();
+    uint8_t *hPtr = (uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0a);
+    uint8_t *mPtr = (uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0b);
+    int currentH = (int)(*hPtr);
+    int newH = (currentH + deltaHours) % 24;
+    if (newH < 0) newH += 24;
+    set_game_time((uint8_t)newH, *mPtr);
+}
+
 // HESOYAM: Native cheat 0xad598 + direct memory write for $250k, full health, armor, and car repair
 static void trigger_hesoyam(void) {
     intptr_t slide = get_gtasa_slide();
@@ -178,13 +207,29 @@ static void set_weather(int weatherId) {
     }
 }
 
-// Wanted Level: 0x13bc8c with (stars * 4, 0, 0)
+// Wanted Level: CPed::SetWantedLevel at 0x273bc8 and native cheat 0xae71c (lock 0) / 0xae750 (6 stars)
 static void set_wanted_level(int stars) {
+    if (stars < 0) stars = 0;
+    if (stars > 6) stars = 6;
+
     intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x13bc8c;
-    void (*fn)(int, int, int) = (void(*)(int, int, int))addr;
-    if (fn) {
-        fn(stars * 4, 0, 0);
+    if (stars == 0) {
+        uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0xae71c;
+        void (*clearCheatFn)(void) = (void(*)(void))addr;
+        if (clearCheatFn) clearCheatFn();
+    } else if (stars == 6) {
+        uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0xae750;
+        void (*maxCheatFn)(void) = (void(*)(void))addr;
+        if (maxCheatFn) maxCheatFn();
+    }
+
+    uintptr_t ped = get_player_ped();
+    if (ped) {
+        uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x273bc8;
+        void (*setWantedFn)(uintptr_t, int) = (void(*)(uintptr_t, int))addr;
+        if (setWantedFn) {
+            setWantedFn(ped, stars);
+        }
     }
 }
 
@@ -206,7 +251,7 @@ static void set_game_speed(float speed) {
     *(float *)addr = speed;
 }
 
-// Native Cheats: Jetpack (0xad6fc), Parachute (0xadb04), BlowUpCars (0xad66c), Wanted+ (0xad488), Wanted- (0xad4b8)
+// Native Cheats: Jetpack (0xad6fc), Parachute (0xadb04), BlowUpCars (0xad66c)
 static void trigger_native_cheat(uintptr_t offset) {
     intptr_t slide = get_gtasa_slide();
     uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + offset;
@@ -588,8 +633,8 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UITextField *idTextField;
 @property (nonatomic, strong) UITextField *colorTextField;
+@property (nonatomic, strong) UITextField *timeTextField;
 @property (nonatomic, strong) UISwitch *godModeSwitch;
-@property (nonatomic, strong) UILabel *godModeStatusBadge;
 @property (nonatomic, strong) NSTimer *toastTimer;
 @end
 
@@ -658,14 +703,14 @@ static NSString *get_vehicle_name(int modelId) {
     [self addSubview:self.toastLabel];
 
     // Category segmented control (5 tabs)
-    NSArray *categories = @[@"🚗 Avto", @"🎨 Rang", @"🛡️ O'yinchi", @"🔫 Qurol", @"🌦️ Havo"];
+    NSArray *categories = @[@"🚗 Avto", @"🎨 Rang", @"🛡️ O'yinchi", @"🔫 Qurol", @"⏰ Vaqt & Havo"];
     self.segmentedControl = [[UISegmentedControl alloc] initWithItems:categories];
     self.segmentedControl.frame = CGRectMake(8, 73, w - 16, 28);
     self.segmentedControl.selectedSegmentIndex = 0;
     if (@available(iOS 13.0, *)) {
         self.segmentedControl.selectedSegmentTintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.85];
-        [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor blackColor], NSFontAttributeName: [UIFont boldSystemFontOfSize:11]} forState:UIControlStateSelected];
-        [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: [UIFont systemFontOfSize:11]} forState:UIControlStateNormal];
+        [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor blackColor], NSFontAttributeName: [UIFont boldSystemFontOfSize:10.5]} forState:UIControlStateSelected];
+        [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: [UIFont systemFontOfSize:10.5]} forState:UIControlStateNormal];
     } else {
         self.segmentedControl.tintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
     }
@@ -695,6 +740,7 @@ static NSString *get_vehicle_name(int modelId) {
     } else {
         [self.idTextField resignFirstResponder];
         [self.colorTextField resignFirstResponder];
+        [self.timeTextField resignFirstResponder];
         [UIView animateWithDuration:0.2 animations:^{
             self.transform = CGAffineTransformMakeScale(0.85, 0.85);
             self.alpha = 0.0;
@@ -728,6 +774,7 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)categoryChanged:(UISegmentedControl *)sender {
     [self.idTextField resignFirstResponder];
     [self.colorTextField resignFirstResponder];
+    [self.timeTextField resignFirstResponder];
     [self refreshCheatsList];
 }
 
@@ -737,6 +784,8 @@ static NSString *get_vehicle_name(int modelId) {
         [self spawnByIdTapped];
     } else if (textField == self.colorTextField) {
         [self applyCustomColorTapped];
+    } else if (textField == self.timeTextField) {
+        [self applyCustomTimeTapped];
     }
     return YES;
 }
@@ -757,7 +806,6 @@ static NSString *get_vehicle_name(int modelId) {
     // Category 0: Mashinalar (Vehicle Spawner + ID Spawner)
     // =========================================================================
     if (cat == 0) {
-        // Vehicle Spawner Card
         UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 76)];
         card.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
         card.layer.cornerRadius = 8.0;
@@ -800,7 +848,6 @@ static NSString *get_vehicle_name(int modelId) {
         [self.scrollView addSubview:card];
         curY += 82.0;
 
-        // Quick popular vehicles list
         NSArray *vList = @[
             @{@"title": @"🏎️ Infernus Superkar", @"sub": @"Eng mashhur sportkar", @"vid": @(411)},
             @{@"title": @"🏎️ Bullet Superkar", @"sub": @"Tezkor Ford GT modeli", @"vid": @(541)},
@@ -870,7 +917,6 @@ static NSString *get_vehicle_name(int modelId) {
     // Category 1: Mashina Rangi (Vehicle Color Changer)
     // =========================================================================
     if (cat == 1) {
-        // Info card
         UIView *infoCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 30)];
         infoCard.backgroundColor = [UIColor colorWithRed:0.11 green:0.11 blue:0.15 alpha:1.0];
         infoCard.layer.cornerRadius = 6.0;
@@ -885,7 +931,6 @@ static NSString *get_vehicle_name(int modelId) {
         [self.scrollView addSubview:infoCard];
         curY += 36.0;
 
-        // Color Palettes Grid (12 presets)
         NSArray *colors = @[
             @{@"name": @"⬛ Qora", @"id": @(0), @"bg": [UIColor colorWithWhite:0.08 alpha:1.0], @"text": [UIColor whiteColor]},
             @{@"name": @"⬜ Oq", @"id": @(1), @"bg": [UIColor colorWithWhite:0.92 alpha:1.0], @"text": [UIColor blackColor]},
@@ -934,7 +979,6 @@ static NSString *get_vehicle_name(int modelId) {
         int totalRows = (int)((colors.count + numCols - 1) / numCols);
         curY += totalRows * (colBtnH + colGap) + 8.0;
 
-        // Custom Color ID Card
         UIView *customCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 76)];
         customCard.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
         customCard.layer.cornerRadius = 8.0;
@@ -985,7 +1029,6 @@ static NSString *get_vehicle_name(int modelId) {
     // Category 2: O'yinchi (Player Health, God Mode, Money, Motion)
     // =========================================================================
     if (cat == 2) {
-        // 1. God Mode Card with Switch
         UIView *godCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 54)];
         godCard.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.16 alpha:1.0];
         godCard.layer.cornerRadius = 8.0;
@@ -1014,7 +1057,6 @@ static NSString *get_vehicle_name(int modelId) {
         [self.scrollView addSubview:godCard];
         curY += 60.0;
 
-        // 2. Action cheats list
         NSArray *pCheats = @[
             @{
                 @"title": @"💰 HESOYAM: $250,000 + 100% Jon + Bronya + Avto",
@@ -1179,10 +1221,118 @@ static NSString *get_vehicle_name(int modelId) {
     }
 
     // =========================================================================
-    // Category 4: Ob-Havo & Qidiruv (Weather & Wanted Level)
+    // Category 4: Vaqt & Havo (Clock, Weather & Wanted Level)
     // =========================================================================
     if (cat == 4) {
-        // Section 1: Ob-havo
+        // --- Section 1: Soat / Vaqtni o'zgartirish ---
+        UILabel *tHead = [[UILabel alloc] initWithFrame:CGRectMake(4, curY, btnW - 8, 16)];
+        tHead.text = @"⏰ Soat / Vaqtni o'zgartirish:";
+        tHead.font = [UIFont boldSystemFontOfSize:11];
+        tHead.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [self.scrollView addSubview:tHead];
+        curY += 20.0;
+
+        // 4 Preset Time Buttons
+        NSArray *timePresets = @[
+            @{@"name": @"🌅 Tong (06:00)", @"h": @(6), @"m": @(0)},
+            @{@"name": @"☀️ Kunduz (12:00)", @"h": @(12), @"m": @(0)},
+            @{@"name": @"🌇 Oqshom (20:00)", @"h": @(20), @"m": @(0)},
+            @{@"name": @"🌙 Tun (00:00)", @"h": @(0), @"m": @(0)}
+        ];
+
+        CGFloat tGap = 6.0;
+        int tCols = 2;
+        CGFloat tBtnW = (btnW - (tCols - 1) * tGap) / (CGFloat)tCols;
+        CGFloat tBtnH = 32.0;
+
+        for (int i = 0; i < timePresets.count; i++) {
+            NSDictionary *tDict = timePresets[i];
+            int r = i / tCols;
+            int c = i % tCols;
+            CGFloat bx = c * (tBtnW + tGap);
+            CGFloat by = curY + r * (tBtnH + tGap);
+
+            UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+            btn.frame = CGRectMake(bx, by, tBtnW, tBtnH);
+            btn.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.19 alpha:1.0];
+            btn.layer.cornerRadius = 6.0;
+            btn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.4].CGColor;
+            btn.layer.borderWidth = 0.8;
+            [btn setTitle:tDict[@"name"] forState:UIControlStateNormal];
+            [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+            btn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+
+            objc_setAssociatedObject(btn, "time_dict", tDict, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [btn addTarget:self action:@selector(presetTimeTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+            [self.scrollView addSubview:btn];
+        }
+        curY += 2 * (tBtnH + tGap) + 4.0;
+
+        // 2 Shift buttons: -1 hour and +1 hour
+        CGFloat sBtnW = (btnW - tGap) / 2.0;
+        UIButton *minusHourBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        minusHourBtn.frame = CGRectMake(0, curY, sBtnW, 30);
+        minusHourBtn.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        minusHourBtn.layer.cornerRadius = 6.0;
+        [minusHourBtn setTitle:@"⏪ -1 Soat Orqaga" forState:UIControlStateNormal];
+        [minusHourBtn setTitleColor:[UIColor colorWithWhite:0.9 alpha:1.0] forState:UIControlStateNormal];
+        minusHourBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+        [minusHourBtn addTarget:self action:@selector(minusHourTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self.scrollView addSubview:minusHourBtn];
+
+        UIButton *plusHourBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        plusHourBtn.frame = CGRectMake(sBtnW + tGap, curY, sBtnW, 30);
+        plusHourBtn.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        plusHourBtn.layer.cornerRadius = 6.0;
+        [plusHourBtn setTitle:@"⏩ +1 Soat Oldinga" forState:UIControlStateNormal];
+        [plusHourBtn setTitleColor:[UIColor colorWithWhite:0.9 alpha:1.0] forState:UIControlStateNormal];
+        plusHourBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+        [plusHourBtn addTarget:self action:@selector(plusHourTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self.scrollView addSubview:plusHourBtn];
+        curY += 36.0;
+
+        // Custom Hour Input Card
+        UIView *timeCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 64)];
+        timeCard.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.15 alpha:1.0];
+        timeCard.layer.cornerRadius = 7.0;
+        timeCard.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:0.6].CGColor;
+        timeCard.layer.borderWidth = 0.8;
+
+        UILabel *timePrompt = [[UILabel alloc] initWithFrame:CGRectMake(8, 5, btnW - 16, 14)];
+        timePrompt.text = @"🔢 Qo'lda soat kiritish (0 dan 23 gacha):";
+        timePrompt.font = [UIFont boldSystemFontOfSize:10.5];
+        timePrompt.textColor = [UIColor colorWithWhite:0.8 alpha:1.0];
+        [timeCard addSubview:timePrompt];
+
+        self.timeTextField = [[UITextField alloc] initWithFrame:CGRectMake(8, 24, btnW - 120, 32)];
+        self.timeTextField.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.22 alpha:1.0];
+        self.timeTextField.layer.cornerRadius = 5;
+        self.timeTextField.textColor = [UIColor whiteColor];
+        self.timeTextField.font = [UIFont boldSystemFontOfSize:13];
+        self.timeTextField.placeholder = @"Masalan: 18";
+        self.timeTextField.keyboardType = UIKeyboardTypeNumberPad;
+        self.timeTextField.textAlignment = NSTextAlignmentCenter;
+        self.timeTextField.delegate = self;
+        if (@available(iOS 13.0, *)) {
+            self.timeTextField.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        }
+        [timeCard addSubview:self.timeTextField];
+
+        UIButton *applyTimeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        applyTimeBtn.frame = CGRectMake(btnW - 106, 24, 98, 32);
+        applyTimeBtn.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+        applyTimeBtn.layer.cornerRadius = 5;
+        [applyTimeBtn setTitle:@"⏰ O'RNATISH" forState:UIControlStateNormal];
+        [applyTimeBtn setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+        applyTimeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+        [applyTimeBtn addTarget:self action:@selector(applyCustomTimeTapped) forControlEvents:UIControlEventTouchUpInside];
+        [timeCard addSubview:applyTimeBtn];
+
+        [self.scrollView addSubview:timeCard];
+        curY += 72.0;
+
+        // --- Section 2: Ob-havo ---
         UILabel *wHead = [[UILabel alloc] initWithFrame:CGRectMake(4, curY, btnW - 8, 16)];
         wHead.text = @"🌦️ Ob-havoni o'zgartirish:";
         wHead.font = [UIFont boldSystemFontOfSize:11];
@@ -1202,7 +1352,7 @@ static NSString *get_vehicle_name(int modelId) {
         CGFloat wGap = 6.0;
         int wCols = 3;
         CGFloat wBtnW = (btnW - (wCols - 1) * wGap) / (CGFloat)wCols;
-        CGFloat wBtnH = 34.0;
+        CGFloat wBtnH = 32.0;
 
         for (int i = 0; i < weathers.count; i++) {
             NSDictionary *wDict = weathers[i];
@@ -1226,10 +1376,9 @@ static NSString *get_vehicle_name(int modelId) {
 
             [self.scrollView addSubview:btn];
         }
-
         curY += 2 * (wBtnH + wGap) + 12.0;
 
-        // Section 2: Politsiya Qidiruvi (Wanted Level)
+        // --- Section 3: Politsiya Qidiruvi (Wanted Level) ---
         UILabel *qHead = [[UILabel alloc] initWithFrame:CGRectMake(4, curY, btnW - 8, 16)];
         qHead.text = @"🚨 Politsiya Qidiruv Darajasi (Wanted Level):";
         qHead.font = [UIFont boldSystemFontOfSize:11];
@@ -1400,6 +1549,52 @@ static NSString *get_vehicle_name(int modelId) {
     } else {
         [self showToast:@"⚠️ Avval mashinaga o'tiring!"];
     }
+}
+
+- (void)presetTimeTapped:(UIButton *)sender {
+    NSDictionary *dict = objc_getAssociatedObject(sender, "time_dict");
+    if (!dict) return;
+
+    [self hapticImpact:2];
+    int h = [dict[@"h"] intValue];
+    int m = [dict[@"m"] intValue];
+    set_game_time((uint8_t)h, (uint8_t)m);
+    [self showToast:[NSString stringWithFormat:@"⏰ Soat %02d:%02d ga o'rnatildi!", h, m]];
+}
+
+- (void)minusHourTapped {
+    [self hapticImpact:2];
+    add_game_hours(-1);
+    intptr_t slide = get_gtasa_slide();
+    uint8_t currentH = *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0a);
+    [self showToast:[NSString stringWithFormat:@"⏰ 1 soat orqaga: Hozir %02d:00", currentH]];
+}
+
+- (void)plusHourTapped {
+    [self hapticImpact:2];
+    add_game_hours(1);
+    intptr_t slide = get_gtasa_slide();
+    uint8_t currentH = *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x72df0a);
+    [self showToast:[NSString stringWithFormat:@"⏰ 1 soat oldinga: Hozir %02d:00", currentH]];
+}
+
+- (void)applyCustomTimeTapped {
+    [self.timeTextField resignFirstResponder];
+    NSString *txt = [self.timeTextField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (txt.length == 0) {
+        [self showToast:@"⚠️ Soatni kiriting! (0 - 23)"];
+        return;
+    }
+
+    int h = [txt intValue];
+    if (h < 0 || h > 23) {
+        [self showToast:@"⚠️ Soat 0 dan 23 oralig'ida bo'lishi kerak!"];
+        return;
+    }
+
+    [self hapticImpact:2];
+    set_game_time((uint8_t)h, 0);
+    [self showToast:[NSString stringWithFormat:@"⏰ Soat %02d:00 ga o'rnatildi!", h]];
 }
 
 - (void)godModeSwitchChanged:(UISwitch *)sender {

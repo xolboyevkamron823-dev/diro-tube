@@ -30,7 +30,10 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         contentController.add(self, name: "exportDFF")
 
         config.userContentController = contentController
-        config.preferences.javaScriptEnabled = true
+
+        let webpagePreferences = WKWebpagePreferences()
+        webpagePreferences.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = webpagePreferences
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -65,12 +68,27 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         for url in candidatePaths {
             if FileManager.default.fileExists(atPath: url.path) {
                 print("Loading 3D Studio from: \(url.path)")
-                webView.loadFileURL(url, allowingReadAccessTo: bundleUrl)
-                return
+                do {
+                    let htmlString = try String(contentsOf: url, encoding: .utf8)
+                    let baseURL = url.deletingLastPathComponent()
+                    webView.loadHTMLString(htmlString, baseURL: baseURL)
+                    return
+                } catch {
+                    print("loadHTMLString failed: \(error), fallback to loadFileURL")
+                    webView.loadFileURL(url, allowingReadAccessTo: bundleUrl)
+                    return
+                }
             }
         }
 
-        showErrorAlert(title: "Xatolik", message: "index.html topilmadi!\nBundle yo'li: \(bundleUrl.path)")
+        let emergencyHTML = """
+        <!DOCTYPE html><html><body style="background:#0f1117;color:#f87171;font-family:-apple-system,sans-serif;padding:30px;text-align:center;">
+        <h2>Diro 3D Studio</h2>
+        <p style="color:#f87171;">index.html topilmadi!</p>
+        <p style="color:#94a3b8;font-size:12px;">\(bundleUrl.path)</p>
+        </body></html>
+        """
+        webView.loadHTMLString(emergencyHTML, baseURL: nil)
     }
 
     private func showErrorAlert(title: String, message: String) {

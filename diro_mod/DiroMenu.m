@@ -237,7 +237,7 @@ static void camera_take_control(const float target[3], int16_t switchType) {
 
     // Direct memory flags to lock camera under script/drone control
     *(int32_t *)(cam + 0xb4) = 1;           // whoTakesControl = 1 (SCRIPT)
-    *(int16_t *)(cam + 0xc64) = 14;         // MODE_FIXED (14)
+    *(int16_t *)(cam + 0xc64) = 15;         // MODE 15 (Point at Target)
     *(uint16_t *)(cam + 0x31) = 0x100;
     *(uint8_t *)(cam + 0x36) = 1;           // Request cam switch
     *(uint8_t *)(cam + 0x38) = 1;           // Trigger script cam update in CCamera::Process
@@ -261,6 +261,9 @@ static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
     }
 
     // Direct script buffer assignments
+    *(float *)(cam + 0x83c) = target[0];
+    *(float *)(cam + 0x840) = target[1];
+    *(float *)(cam + 0x844) = target[2];
     *(float *)(cam + 0x848) = pos[0];
     *(float *)(cam + 0x84c) = pos[1];
     *(float *)(cam + 0x850) = pos[2];
@@ -279,13 +282,14 @@ static void camera_set_fov(float fov) {
     *(float *)(activeCam + 0x8c) = fov;
     *(float *)(activeCam + 0x90) = fov;
     *(float *)(activeCam + 0x94) = fov;
+    *(float *)(cam + 0xd0) = fov;
 }
 
 static void camera_restore(void) {
     uintptr_t cam = get_the_camera();
     if (!cam) return;
     intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x134e68; // CCamera::RestoreWithJumpCut
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x133488; // CCamera::RestoreWithJumpCut (Opcode 015A)
     void (*fn)(uintptr_t) = (void(*)(uintptr_t))addr;
     if (fn) {
         fn(cam);
@@ -848,13 +852,13 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// DiroVirtualJoystickView: Smooth Glowing Joystick Pad
+// DiroVirtualJoystickView: Smooth Glowing Joystick Pad (Visual Only)
 // -----------------------------------------------------------------------------
 @interface DiroVirtualJoystickView : UIView
-@property (nonatomic, assign) CGFloat stickX; // -1.0 to 1.0
-@property (nonatomic, assign) CGFloat stickY; // -1.0 to 1.0
 @property (nonatomic, strong) UIView *baseView;
 @property (nonatomic, strong) UIView *knobView;
+- (void)setKnobOffset:(CGPoint)offset;
+- (void)resetKnob;
 @end
 
 @implementation DiroVirtualJoystickView
@@ -863,7 +867,7 @@ static NSString *get_vehicle_name(int modelId) {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor clearColor];
-        self.multipleTouchEnabled = NO;
+        self.userInteractionEnabled = NO;
 
         CGFloat baseSize = frame.size.width;
         self.baseView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, baseSize, baseSize)];
@@ -901,23 +905,10 @@ static NSString *get_vehicle_name(int modelId) {
     return self;
 }
 
-- (void)updateKnobForPoint:(CGPoint)pt {
+- (void)setKnobOffset:(CGPoint)offset {
     CGFloat centerX = self.bounds.size.width / 2.0;
     CGFloat centerY = self.bounds.size.height / 2.0;
-    CGFloat maxRadius = (self.bounds.size.width - 46.0) / 2.0;
-
-    CGFloat dx = pt.x - centerX;
-    CGFloat dy = pt.y - centerY;
-    CGFloat dist = sqrtf(dx * dx + dy * dy);
-
-    if (dist > maxRadius && dist > 0.001f) {
-        dx = (dx / dist) * maxRadius;
-        dy = (dy / dist) * maxRadius;
-    }
-
-    self.knobView.center = CGPointMake(centerX + dx, centerY + dy);
-    self.stickX = dx / maxRadius;
-    self.stickY = -dy / maxRadius; // Up is forward
+    self.knobView.center = CGPointMake(centerX + offset.x, centerY + offset.y);
 }
 
 - (void)resetKnob {
@@ -926,77 +917,8 @@ static NSString *get_vehicle_name(int modelId) {
     [UIView animateWithDuration:0.2 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
         self.knobView.center = CGPointMake(centerX, centerY);
     } completion:nil];
-    self.stickX = 0.0f;
-    self.stickY = 0.0f;
 }
 
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    UITouch *t = [touches anyObject];
-    CGPoint pt = [t locationInView:self];
-    [self updateKnobForPoint:pt];
-}
-
-- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    UITouch *t = [touches anyObject];
-    CGPoint pt = [t locationInView:self];
-    [self updateKnobForPoint:pt];
-}
-
-- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    [self resetKnob];
-}
-
-- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    [self resetKnob];
-}
-
-@end
-
-// -----------------------------------------------------------------------------
-// DiroLookAreaView: Touch Pan/Swipe Rotation Area
-// -----------------------------------------------------------------------------
-@interface DiroLookAreaView : UIView
-@property (nonatomic, copy) void (^onPanLook)(CGFloat deltaX, CGFloat deltaY);
-@property (nonatomic, copy) void (^onDoubleTap)(void);
-@end
-
-@implementation DiroLookAreaView
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
-    if (self) {
-        self.backgroundColor = [UIColor clearColor];
-        self.multipleTouchEnabled = YES;
-        self.userInteractionEnabled = YES;
-
-        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
-        pan.maximumNumberOfTouches = 1;
-        pan.cancelsTouchesInView = NO;
-        [self addGestureRecognizer:pan];
-
-        UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTap:)];
-        doubleTap.numberOfTapsRequired = 2;
-        [self addGestureRecognizer:doubleTap];
-    }
-    return self;
-}
-
-- (void)handlePan:(UIPanGestureRecognizer *)pan {
-    if (pan.state == UIGestureRecognizerStateChanged) {
-        CGPoint trans = [pan translationInView:self];
-        [pan setTranslation:CGPointZero inView:self];
-        if (self.onPanLook) {
-            self.onPanLook(trans.x, trans.y);
-        }
-    } else if (pan.state == UIGestureRecognizerStateBegan) {
-        [pan setTranslation:CGPointZero inView:self];
-    }
-}
-
-- (void)handleDoubleTap:(UITapGestureRecognizer *)gesture {
-    if (self.onDoubleTap) {
-        self.onDoubleTap();
-    }
-}
 @end
 
 // -----------------------------------------------------------------------------
@@ -1005,7 +927,6 @@ static NSString *get_vehicle_name(int modelId) {
 @interface DiroDroneOverlayView : UIView
 @property (nonatomic, strong) CADisplayLink *displayLink;
 @property (nonatomic, strong) DiroVirtualJoystickView *joystick;
-@property (nonatomic, strong) DiroLookAreaView *lookArea;
 @property (nonatomic, strong) UIView *topBar;
 @property (nonatomic, strong) UIButton *ascendBtn;
 @property (nonatomic, strong) UIButton *descendBtn;
@@ -1042,9 +963,16 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, assign) float currentFOV;
 @property (nonatomic, assign) float speedMultiplier;
 @property (nonatomic, assign) float elevInput;
+@property (nonatomic, assign) float stickX;
+@property (nonatomic, assign) float stickY;
 @property (nonatomic, assign) BOOL isWorldFrozen;
 @property (nonatomic, assign) BOOL isHudHidden;
 @property (nonatomic, assign) BOOL isActive;
+
+// Touch tracking
+@property (nonatomic, strong) UITouch *joystickTouch;
+@property (nonatomic, strong) UITouch *lookTouch;
+@property (nonatomic, assign) CGPoint lastLookPoint;
 
 @property (nonatomic, copy) void (^onExitBlock)(void);
 @end
@@ -1061,6 +989,8 @@ static NSString *get_vehicle_name(int modelId) {
         self.currentFOV = 70.0f;
         self.speedMultiplier = 1.5f;
         self.elevInput = 0.0f;
+        self.stickX = 0.0f;
+        self.stickY = 0.0f;
         self.rollAngle = 0.0f;
         self.isWorldFrozen = NO;
         self.isHudHidden = NO;
@@ -1072,18 +1002,7 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 - (void)setupUI {
-    // 1. Look Touch Area (covers right half of screen)
-    self.lookArea = [[DiroLookAreaView alloc] initWithFrame:CGRectZero];
-    __weak DiroDroneOverlayView *weakSelf = self;
-    self.lookArea.onPanLook = ^(CGFloat dx, CGFloat dy) {
-        [weakSelf handleLookPanDx:dx dy:dy];
-    };
-    self.lookArea.onDoubleTap = ^{
-        [weakSelf toggleHudVisibility];
-    };
-    [self addSubview:self.lookArea];
-
-    // 2. Left Virtual Joystick
+    // 1. Left Virtual Joystick (visual feedback)
     self.joystick = [[DiroVirtualJoystickView alloc] initWithFrame:CGRectMake(0, 0, 115, 115)];
     [self addSubview:self.joystick];
 
@@ -1406,10 +1325,10 @@ static NSString *get_vehicle_name(int modelId) {
         return nil;
     }
     UIView *hit = [super hitTest:point withEvent:event];
-    if (hit == nil || hit == self) {
-        return self.lookArea;
+    if (hit && hit != self && hit != self.joystick && hit != self.joystick.baseView && hit != self.joystick.knobView) {
+        return hit;
     }
-    return hit;
+    return self;
 }
 
 - (void)layoutSubviews {
@@ -1429,20 +1348,88 @@ static NSString *get_vehicle_name(int modelId) {
 
     self.joystick.frame = CGRectMake(35.0, h - 145.0, 115.0, 115.0);
 
-    // Look area covers the entire screen behind buttons
-    self.lookArea.frame = CGRectMake(w * 0.25, 0, w * 0.75, h);
-
     CGFloat ebX = w - 70.0;
     CGFloat ebY = h - 145.0;
     self.ascendBtn.frame = CGRectMake(ebX, ebY, 52.0, 52.0);
     self.descendBtn.frame = CGRectMake(ebX, ebY + 60.0, 52.0, 52.0);
 }
 
-- (void)handleLookPanDx:(CGFloat)dx dy:(CGFloat)dy {
-    self.targetYaw += (float)dx * 0.0040f;
-    self.targetPitch -= (float)dy * 0.0040f;
-    if (self.targetPitch > 1.45f) self.targetPitch = 1.45f;
-    if (self.targetPitch < -1.45f) self.targetPitch = -1.45f;
+- (void)updateJoystickWithPoint:(CGPoint)pt {
+    CGPoint center = self.joystick.center;
+    CGFloat dx = pt.x - center.x;
+    CGFloat dy = pt.y - center.y;
+    CGFloat maxR = (self.joystick.bounds.size.width - 46.0) / 2.0;
+    if (maxR < 25.0) maxR = 35.0;
+
+    CGFloat dist = sqrtf(dx * dx + dy * dy);
+    if (dist > maxR && dist > 0.001f) {
+        dx = (dx / dist) * maxR;
+        dy = (dy / dist) * maxR;
+    }
+
+    [self.joystick setKnobOffset:CGPointMake(dx, dy)];
+    self.stickX = (float)(dx / maxR);
+    self.stickY = (float)(-dy / maxR); // Up is forward (+1.0)
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    CGFloat w = self.bounds.size.width;
+    CGFloat splitX = w * 0.45;
+
+    for (UITouch *t in touches) {
+        CGPoint pt = [t locationInView:self];
+        if (pt.x < splitX) {
+            if (!self.joystickTouch) {
+                self.joystickTouch = t;
+                [self updateJoystickWithPoint:pt];
+            }
+        } else {
+            if (!self.lookTouch) {
+                self.lookTouch = t;
+                self.lastLookPoint = pt;
+            }
+        }
+    }
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    for (UITouch *t in touches) {
+        if (t == self.joystickTouch) {
+            CGPoint pt = [t locationInView:self];
+            [self updateJoystickWithPoint:pt];
+        } else if (t == self.lookTouch) {
+            CGPoint pt = [t locationInView:self];
+            CGFloat dx = pt.x - self.lastLookPoint.x;
+            CGFloat dy = pt.y - self.lastLookPoint.y;
+            self.lastLookPoint = pt;
+
+            self.targetYaw += (float)dx * 0.0045f;
+            self.targetPitch -= (float)dy * 0.0045f;
+            if (self.targetPitch > 1.45f) self.targetPitch = 1.45f;
+            if (self.targetPitch < -1.45f) self.targetPitch = -1.45f;
+        }
+    }
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    for (UITouch *t in touches) {
+        if (t == self.joystickTouch) {
+            self.joystickTouch = nil;
+            self.stickX = 0.0f;
+            self.stickY = 0.0f;
+            [self.joystick resetKnob];
+        }
+        if (t == self.lookTouch) {
+            if (t.tapCount == 2) {
+                [self toggleHudVisibility];
+            }
+            self.lookTouch = nil;
+        }
+    }
+}
+
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self touchesEnded:touches withEvent:event];
 }
 
 - (void)ascendDown {
@@ -1689,6 +1676,10 @@ static NSString *get_vehicle_name(int modelId) {
     self.targetPitch = self.pitch;
     self.velX = self.velY = self.velZ = 0.0f;
     self.elevInput = 0.0f;
+    self.stickX = 0.0f;
+    self.stickY = 0.0f;
+    self.joystickTouch = nil;
+    self.lookTouch = nil;
 
     // Reset roll to 0.0° (16:9 standard landscape)
     self.rollAngle = 0.0f;
@@ -1711,7 +1702,7 @@ static NSString *get_vehicle_name(int modelId) {
     self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrameUpdate:)];
     [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-    [self showToast:@"🛸 Dron faollashdi! Joystik va ekranni silang."];
+    [self showToast:@"🛸 Dron faollashdi! Chapda joystik, o'ngda burish."];
 }
 
 - (void)stopDroneFlight {
@@ -1761,15 +1752,15 @@ static NSString *get_vehicle_name(int modelId) {
     float rightX = cosYaw;
     float rightY = -sinYaw;
 
-    float baseSpeed = 10.0f;
+    float baseSpeed = 15.0f;
     float speed = baseSpeed * self.speedMultiplier;
 
-    float targetVx = (fwdX * (float)self.joystick.stickY + rightX * (float)self.joystick.stickX) * speed;
-    float targetVy = (fwdY * (float)self.joystick.stickY + rightY * (float)self.joystick.stickX) * speed;
-    float targetVz = (fwdZ * (float)self.joystick.stickY + self.elevInput) * speed;
+    float targetVx = (fwdX * self.stickY + rightX * self.stickX) * speed;
+    float targetVy = (fwdY * self.stickY + rightY * self.stickX) * speed;
+    float targetVz = (fwdZ * self.stickY + self.elevInput) * speed;
 
     // Exponential smoothing / damping
-    float posDamping = 0.25f;
+    float posDamping = 0.30f;
     self.velX += (targetVx - self.velX) * posDamping;
     self.velY += (targetVy - self.velY) * posDamping;
     self.velZ += (targetVz - self.velZ) * posDamping;
@@ -1779,7 +1770,7 @@ static NSString *get_vehicle_name(int modelId) {
     self.droneZ += self.velZ * dt;
 
     // Angular smoothing for look direction
-    float rotDamping = 0.35f;
+    float rotDamping = 0.40f;
     self.yaw += (self.targetYaw - self.yaw) * rotDamping;
     self.pitch += (self.targetPitch - self.pitch) * rotDamping;
 
@@ -1836,36 +1827,49 @@ static NSString *get_vehicle_name(int modelId) {
     if (activeIdx > 2) activeIdx = 0;
     uintptr_t activeCam = cam + (uintptr_t)activeIdx * 0x228;
 
-    // Direct memory flags to lock camera under script/drone control
-    *(int16_t *)(activeCam + 0x186) = 14;  // MODE_FIXED
-    *(int16_t *)(cam + 0xc64) = 14;
+    // Direct memory flags to lock camera under script/drone control (Mode 15: Point at target)
+    *(int16_t *)(activeCam + 0x186) = 15;
+    *(int16_t *)(cam + 0xc64) = 15;
     *(int32_t *)(cam + 0xb4) = 1;          // whoTakesControl = 1 (SCRIPT)
-    *(uint16_t *)(cam + 0x31) = 0x100;
-    *(uint8_t *)(cam + 0x36) = 1;
-    *(uint8_t *)(cam + 0x38) = 1;          // Trigger script cam update in CCamera::Process
-    *(int16_t *)(cam + 0xc68) = 2;         // JUMP_CUT
     *(uint8_t *)(cam + 0x54) = 0;
 
-    // Direct activeCam vectors
+    // Direct target buffer assignments (0x83c is read by Mode 15 CCamera::Process!)
+    *(float *)(cam + 0x83c) = camTarget[0];
+    *(float *)(cam + 0x840) = camTarget[1];
+    *(float *)(cam + 0x844) = camTarget[2];
+
+    *(float *)(activeCam + 0x2a4) = camTarget[0];
+    *(float *)(activeCam + 0x2a8) = camTarget[1];
+    *(float *)(activeCam + 0x2ac) = camTarget[2];
+
+    // Direct position buffer assignments
+    *(float *)(cam + 0x848) = camPos[0];
+    *(float *)(cam + 0x84c) = camPos[1];
+    *(float *)(cam + 0x850) = camPos[2];
+
     *(float *)(activeCam + 0x2b0) = camPos[0];
     *(float *)(activeCam + 0x2b4) = camPos[1];
     *(float *)(activeCam + 0x2b8) = camPos[2];
+
+    // Direct front vector assignments
+    *(float *)(cam + 0x854) = fwdX;
+    *(float *)(cam + 0x858) = fwdY;
+    *(float *)(cam + 0x85c) = fwdZ;
 
     *(float *)(activeCam + 0x2bc) = fwdX;
     *(float *)(activeCam + 0x2c0) = fwdY;
     *(float *)(activeCam + 0x2c4) = fwdZ;
 
+    // Direct up vector assignments
     *(float *)(activeCam + 0x2c8) = upX;
     *(float *)(activeCam + 0x2cc) = upY;
     *(float *)(activeCam + 0x2d0) = upZ;
 
-    // Set FOV in activeCam
+    // Set FOV in activeCam and TheCamera
     *(float *)(activeCam + 0x8c) = self.currentFOV;
     *(float *)(activeCam + 0x90) = self.currentFOV;
     *(float *)(activeCam + 0x94) = self.currentFOV;
-
-    // Engine fixed pos & target buffers
-    camera_set_fixed_pos(camPos, camTarget);
+    *(float *)(cam + 0xd0) = self.currentFOV;
 
     // Direct TheCamera.m_mCameraMatrix update (RenderWare RwMatrix)
     // 0x970: right vector

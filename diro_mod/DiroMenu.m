@@ -24,6 +24,8 @@ static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
 
+static void trigger_native_cheat(uintptr_t offset);
+
 // -----------------------------------------------------------------------------
 // ASLR Slide & Engine Pointers
 // -----------------------------------------------------------------------------

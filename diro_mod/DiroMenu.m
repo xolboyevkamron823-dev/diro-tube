@@ -34,13 +34,6 @@ static void trigger_native_cheat(uintptr_t offset);
 // ASLR Slide & Engine Pointers
 // -----------------------------------------------------------------------------
 static intptr_t get_gtasa_slide(void) {
-    uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; i++) {
-        const char *name = _dyld_get_image_name(i);
-        if (name && strstr(name, "gtasa")) {
-            return _dyld_get_image_vmaddr_slide(i);
-        }
-    }
     return _dyld_get_image_vmaddr_slide(0);
 }
 
@@ -231,16 +224,28 @@ static uintptr_t get_the_camera(void) {
     return (uintptr_t)slide + 0x100000000ULL + 0x72cf08;
 }
 
-static void camera_take_control(int16_t mode, int16_t switchType) {
+static void camera_take_control(const float target[3], int16_t switchType) {
     uintptr_t cam = get_the_camera();
     if (!cam) return;
     intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x1346f4;
-    void (*fn)(uintptr_t, uintptr_t, int16_t, int16_t, int32_t) =
-        (void(*)(uintptr_t, uintptr_t, int16_t, int16_t, int32_t))addr;
-    if (fn) {
-        fn(cam, 0, mode, switchType, 1);
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x13aa78;
+    void (*fn)(uintptr_t, const float *, int16_t, int32_t) =
+        (void(*)(uintptr_t, const float *, int16_t, int32_t))addr;
+    if (fn && target) {
+        fn(cam, target, switchType, 1);
     }
+
+    // Direct memory assignments for 100% stability
+    *(int32_t *)(cam + 0xb4) = 1;
+    *(int16_t *)(cam + 0xc64) = 15;
+    *(uint16_t *)(cam + 0x31) = 0x100;
+    if (target) {
+        *(float *)(cam + 0x83c) = target[0];
+        *(float *)(cam + 0x840) = target[1];
+        *(float *)(cam + 0x844) = target[2];
+    }
+    *(int16_t *)(cam + 0xc68) = switchType;
+    *(uint8_t *)(cam + 0x38) = 1;
 }
 
 static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
@@ -254,6 +259,15 @@ static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
         fn(cam, pos, target);
     }
 
+    // Direct memory backup for 100% immediate effect
+    *(float *)(cam + 0x848) = pos[0];
+    *(float *)(cam + 0x84c) = pos[1];
+    *(float *)(cam + 0x850) = pos[2];
+    *(float *)(cam + 0x854) = target[0];
+    *(float *)(cam + 0x858) = target[1];
+    *(float *)(cam + 0x85c) = target[2];
+    *(uint8_t *)(cam + 0x54) = 0;
+
     // Keep world streaming center synchronized with drone position
     *(float *)(cam + 0x9a0) = pos[0];
     *(float *)(cam + 0x9a4) = pos[1];
@@ -264,7 +278,8 @@ static void camera_set_fov(float fov) {
     uintptr_t cam = get_the_camera();
     if (!cam) return;
     uint8_t activeIdx = *(uint8_t *)(cam + 0x5f);
-    uintptr_t activeCam = cam + 0x178 + (uintptr_t)activeIdx * 0x228;
+    if (activeIdx > 2) activeIdx = 0;
+    uintptr_t activeCam = cam + (uintptr_t)activeIdx * 0x228;
     *(float *)(activeCam + 0x8c) = fov;
 }
 
@@ -1391,18 +1406,21 @@ static NSString *get_vehicle_name(int modelId) {
     if (g_floatingButton) g_floatingButton.hidden = YES;
 
     uintptr_t ped = get_player_ped();
+    float px = 0.0f, py = 0.0f, pz = 0.0f;
     if (ped) {
-        float px = 0, py = 0, pz = 0;
         get_entity_position(ped, &px, &py, &pz);
-        self.droneX = px;
-        self.droneY = py;
-        self.droneZ = pz + 2.5f;
-    } else {
-        uintptr_t cam = get_the_camera();
-        self.droneX = *(float *)(cam + 0x9a0);
-        self.droneY = *(float *)(cam + 0x9a4);
-        self.droneZ = *(float *)(cam + 0x9a8) + 2.0f;
     }
+    if (px == 0.0f && py == 0.0f && pz == 0.0f) {
+        uintptr_t cam = get_the_camera();
+        if (cam) {
+            px = *(float *)(cam + 0x9a0);
+            py = *(float *)(cam + 0x9a4);
+            pz = *(float *)(cam + 0x9a8);
+        }
+    }
+    self.droneX = px;
+    self.droneY = py;
+    self.droneZ = pz + 2.5f;
 
     self.yaw = 0.0f;
     self.pitch = -0.05f;
@@ -1411,8 +1429,23 @@ static NSString *get_vehicle_name(int modelId) {
     self.velX = self.velY = self.velZ = 0.0f;
     self.elevInput = 0.0f;
 
-    // Take camera control into fixed mode
-    camera_take_control(14, 2);
+    float cosPitch = cosf(self.pitch);
+    float sinPitch = sinf(self.pitch);
+    float cosYaw = cosf(self.yaw);
+    float sinYaw = sinf(self.yaw);
+
+    float fwdX = sinYaw * cosPitch;
+    float fwdY = cosYaw * cosPitch;
+    float fwdZ = sinPitch;
+
+    float initTarget[3] = {
+        self.droneX + fwdX * 25.0f,
+        self.droneY + fwdY * 25.0f,
+        self.droneZ + fwdZ * 25.0f
+    };
+
+    // Take camera control safely via official CCamera::TakeControlAtPosition (0x13aa78)
+    camera_take_control(initTarget, 2);
 
     // Apply initial position immediately
     [self applyCameraToGame];
@@ -1454,8 +1487,8 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)onFrameUpdate:(CADisplayLink *)link {
     if (!self.isActive) return;
 
-    float dt = (float)(link.targetTimestamp - link.timestamp);
-    if (dt <= 0.0f || dt > 0.1f) dt = 1.0f / 60.0f;
+    float dt = (link.duration > 0.001) ? (float)link.duration : (1.0f / 60.0f);
+    if (dt > 0.1f) dt = 1.0f / 60.0f;
 
     float cosPitch = cosf(self.pitch);
     float sinPitch = sinf(self.pitch);

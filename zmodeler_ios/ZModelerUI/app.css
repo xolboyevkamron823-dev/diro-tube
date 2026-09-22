@@ -177,6 +177,15 @@ body, html {
     background: var(--accent);
     color: white;
 }
+#btn-toggle-shader.active {
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: white;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+}
+#btn-toggle-uv.active {
+    background: linear-gradient(135deg, #10b981, #06b6d4);
+    color: white;
+}
 
 /* Bottom Gizmo Mode Switcher */
 .gizmo-bar {

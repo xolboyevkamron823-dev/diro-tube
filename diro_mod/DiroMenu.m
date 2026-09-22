@@ -1013,7 +1013,12 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UIButton *zoomMinusBtn;
 @property (nonatomic, strong) UIButton *zoomPlusBtn;
 @property (nonatomic, strong) UILabel *fovLabel;
-@property (nonatomic, strong) UIButton *orientationBtn;
+@property (nonatomic, strong) UIButton *btn169;
+@property (nonatomic, strong) UIButton *btn916;
+@property (nonatomic, strong) UIButton *rollToggleBtn;
+@property (nonatomic, strong) UIView *rollPanel;
+@property (nonatomic, strong) UISlider *rollSlider;
+@property (nonatomic, strong) UILabel *rollLabel;
 @property (nonatomic, strong) UIButton *freezeBtn;
 @property (nonatomic, strong) UIButton *teleportBtn;
 @property (nonatomic, strong) UIButton *hideHudBtn;
@@ -1033,12 +1038,12 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, assign) float pitch;
 @property (nonatomic, assign) float targetYaw;
 @property (nonatomic, assign) float targetPitch;
+@property (nonatomic, assign) float rollAngle; // in radians
 @property (nonatomic, assign) float currentFOV;
 @property (nonatomic, assign) float speedMultiplier;
 @property (nonatomic, assign) float elevInput;
 @property (nonatomic, assign) BOOL isWorldFrozen;
 @property (nonatomic, assign) BOOL isHudHidden;
-@property (nonatomic, assign) BOOL isPortraitMode;
 @property (nonatomic, assign) BOOL isActive;
 
 @property (nonatomic, copy) void (^onExitBlock)(void);
@@ -1056,9 +1061,9 @@ static NSString *get_vehicle_name(int modelId) {
         self.currentFOV = 70.0f;
         self.speedMultiplier = 1.5f;
         self.elevInput = 0.0f;
+        self.rollAngle = 0.0f;
         self.isWorldFrozen = NO;
         self.isHudHidden = NO;
-        self.isPortraitMode = NO;
         self.isActive = NO;
 
         [self setupUI];
@@ -1116,7 +1121,19 @@ static NSString *get_vehicle_name(int modelId) {
 
     [self setupTopBarContents];
 
-    // 5. Mini Restore Pill (shown only when HUD is hidden)
+    // 5. Roll & Tilt Control Panel (Slayder bilan erkin bukish rejimi)
+    self.rollPanel = [[UIView alloc] initWithFrame:CGRectZero];
+    self.rollPanel.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.12 alpha:0.95];
+    self.rollPanel.layer.cornerRadius = 10.0;
+    self.rollPanel.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.75].CGColor;
+    self.rollPanel.layer.borderWidth = 1.2;
+    self.rollPanel.clipsToBounds = YES;
+    self.rollPanel.hidden = YES;
+    [self addSubview:self.rollPanel];
+
+    [self setupRollPanelContents];
+
+    // 6. Mini Restore Pill (shown only when HUD is hidden)
     self.miniRestoreBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     self.miniRestoreBtn.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:0.75];
     self.miniRestoreBtn.layer.cornerRadius = 8.0;
@@ -1129,7 +1146,7 @@ static NSString *get_vehicle_name(int modelId) {
     self.miniRestoreBtn.hidden = YES;
     [self addSubview:self.miniRestoreBtn];
 
-    // 6. Toast Notification Banner
+    // 7. Toast Notification Banner
     self.toastLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     self.toastLabel.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:0.92];
     self.toastLabel.layer.cornerRadius = 6;
@@ -1146,10 +1163,10 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)setupTopBarContents {
     CGFloat x = 6.0;
     CGFloat btnH = 28.0;
-    CGFloat gap = 5.0;
+    CGFloat gap = 4.0;
 
     // Badge
-    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(x, 6, 52, btnH)];
+    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(x, 6, 50, btnH)];
     badge.text = @"🛸 DRON";
     badge.font = [UIFont boldSystemFontOfSize:10];
     badge.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
@@ -1158,11 +1175,11 @@ static NSString *get_vehicle_name(int modelId) {
     badge.layer.cornerRadius = 5;
     badge.clipsToBounds = YES;
     [self.topBar addSubview:badge];
-    x += 52 + gap;
+    x += 50 + gap;
 
     // Speed button
     self.speedBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.speedBtn.frame = CGRectMake(x, 6, 56, btnH);
+    self.speedBtn.frame = CGRectMake(x, 6, 50, btnH);
     self.speedBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
     self.speedBtn.layer.cornerRadius = 5;
     self.speedBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
@@ -1172,102 +1189,216 @@ static NSString *get_vehicle_name(int modelId) {
     self.speedBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
     [self.speedBtn addTarget:self action:@selector(speedTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.speedBtn];
-    x += 56 + gap;
+    x += 50 + gap;
 
     // Zoom Minus
     self.zoomMinusBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.zoomMinusBtn.frame = CGRectMake(x, 6, 28, btnH);
+    self.zoomMinusBtn.frame = CGRectMake(x, 6, 26, btnH);
     self.zoomMinusBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
     self.zoomMinusBtn.layer.cornerRadius = 5;
     [self.zoomMinusBtn setTitle:@"➖" forState:UIControlStateNormal];
     self.zoomMinusBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
     [self.zoomMinusBtn addTarget:self action:@selector(zoomMinusTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.zoomMinusBtn];
-    x += 28 + 2;
+    x += 26 + 2;
 
     // FOV Label
-    self.fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(x, 6, 36, btnH)];
+    self.fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(x, 6, 32, btnH)];
     self.fovLabel.text = @"70°";
     self.fovLabel.font = [UIFont boldSystemFontOfSize:10.5];
     self.fovLabel.textColor = [UIColor whiteColor];
     self.fovLabel.textAlignment = NSTextAlignmentCenter;
     [self.topBar addSubview:self.fovLabel];
-    x += 36 + 2;
+    x += 32 + 2;
 
     // Zoom Plus
     self.zoomPlusBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.zoomPlusBtn.frame = CGRectMake(x, 6, 28, btnH);
+    self.zoomPlusBtn.frame = CGRectMake(x, 6, 26, btnH);
     self.zoomPlusBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
     self.zoomPlusBtn.layer.cornerRadius = 5;
     [self.zoomPlusBtn setTitle:@"➕" forState:UIControlStateNormal];
     self.zoomPlusBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
     [self.zoomPlusBtn addTarget:self action:@selector(zoomPlusTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.zoomPlusBtn];
-    x += 28 + gap;
+    x += 26 + gap;
 
-    // Orientation toggle (16:9 Landscape vs 9:16 Portrait)
-    self.orientationBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.orientationBtn.frame = CGRectMake(x, 6, 62, btnH);
-    self.orientationBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
-    self.orientationBtn.layer.cornerRadius = 5;
-    self.orientationBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
-    self.orientationBtn.layer.borderWidth = 0.8;
-    [self.orientationBtn setTitle:@"📐 16:9" forState:UIControlStateNormal];
-    [self.orientationBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.orientationBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
-    [self.orientationBtn addTarget:self action:@selector(orientationTapped) forControlEvents:UIControlEventTouchUpInside];
-    [self.topBar addSubview:self.orientationBtn];
-    x += 62 + gap;
+    // 16:9 Standard Landscape Preset Button
+    self.btn169 = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.btn169.frame = CGRectMake(x, 6, 52, btnH);
+    self.btn169.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+    self.btn169.layer.cornerRadius = 5;
+    self.btn169.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+    self.btn169.layer.borderWidth = 0.8;
+    [self.btn169 setTitle:@"📐 16:9" forState:UIControlStateNormal];
+    [self.btn169 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+    self.btn169.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.btn169 addTarget:self action:@selector(btn169Tapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.btn169];
+    x += 52 + gap;
 
-    // Teleport
+    // 9:16 Vertical Portrait Preset Button (TikTok / Reels / Shorts)
+    self.btn916 = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.btn916.frame = CGRectMake(x, 6, 52, btnH);
+    self.btn916.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.btn916.layer.cornerRadius = 5;
+    self.btn916.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+    self.btn916.layer.borderWidth = 0.8;
+    [self.btn916 setTitle:@"📱 9:16" forState:UIControlStateNormal];
+    [self.btn916 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.btn916.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.btn916 addTarget:self action:@selector(btn916Tapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.btn916];
+    x += 52 + gap;
+
+    // Roll / Tilt Panel Toggle Button (Shows live degrees)
+    self.rollToggleBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.rollToggleBtn.frame = CGRectMake(x, 6, 54, btnH);
+    self.rollToggleBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.rollToggleBtn.layer.cornerRadius = 5;
+    self.rollToggleBtn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.6].CGColor;
+    self.rollToggleBtn.layer.borderWidth = 0.8;
+    [self.rollToggleBtn setTitle:@"🔄 0°" forState:UIControlStateNormal];
+    [self.rollToggleBtn setTitleColor:[UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0] forState:UIControlStateNormal];
+    self.rollToggleBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.rollToggleBtn addTarget:self action:@selector(toggleRollPanel) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.rollToggleBtn];
+    x += 54 + gap;
+
+    // Teleport CJ
     self.teleportBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.teleportBtn.frame = CGRectMake(x, 6, 80, btnH);
+    self.teleportBtn.frame = CGRectMake(x, 6, 52, btnH);
     self.teleportBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
     self.teleportBtn.layer.cornerRadius = 5;
     self.teleportBtn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.4].CGColor;
     self.teleportBtn.layer.borderWidth = 0.8;
-    [self.teleportBtn setTitle:@"📍 CJ Keltirish" forState:UIControlStateNormal];
+    [self.teleportBtn setTitle:@"📍 CJ" forState:UIControlStateNormal];
     [self.teleportBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     self.teleportBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
     [self.teleportBtn addTarget:self action:@selector(teleportTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.teleportBtn];
-    x += 80 + gap;
+    x += 52 + gap;
 
-    // Freeze
+    // Freeze World
     self.freezeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.freezeBtn.frame = CGRectMake(x, 6, 84, btnH);
+    self.freezeBtn.frame = CGRectMake(x, 6, 50, btnH);
     self.freezeBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
     self.freezeBtn.layer.cornerRadius = 5;
     self.freezeBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
     self.freezeBtn.layer.borderWidth = 0.8;
-    [self.freezeBtn setTitle:@"🧊 Muzlatish" forState:UIControlStateNormal];
+    [self.freezeBtn setTitle:@"🧊 Muz" forState:UIControlStateNormal];
     [self.freezeBtn setTitleColor:[UIColor colorWithRed:0.40 green:0.85 blue:1.00 alpha:1.0] forState:UIControlStateNormal];
     self.freezeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
     [self.freezeBtn addTarget:self action:@selector(freezeTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.freezeBtn];
-    x += 84 + gap;
+    x += 50 + gap;
 
     // Hide HUD
     self.hideHudBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.hideHudBtn.frame = CGRectMake(x, 6, 32, btnH);
+    self.hideHudBtn.frame = CGRectMake(x, 6, 28, btnH);
     self.hideHudBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
     self.hideHudBtn.layer.cornerRadius = 5;
     [self.hideHudBtn setTitle:@"👁️" forState:UIControlStateNormal];
     self.hideHudBtn.titleLabel.font = [UIFont systemFontOfSize:13];
     [self.hideHudBtn addTarget:self action:@selector(toggleHudVisibility) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.hideHudBtn];
-    x += 32 + gap;
+    x += 28 + gap;
 
     // Exit
     self.exitBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.exitBtn.frame = CGRectMake(x, 6, 68, btnH);
+    self.exitBtn.frame = CGRectMake(x, 6, 28, btnH);
     self.exitBtn.backgroundColor = [UIColor colorWithRed:0.80 green:0.15 blue:0.15 alpha:1.0];
     self.exitBtn.layer.cornerRadius = 5;
-    [self.exitBtn setTitle:@"✕ YOPISH" forState:UIControlStateNormal];
+    [self.exitBtn setTitle:@"✕" forState:UIControlStateNormal];
     [self.exitBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.exitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    self.exitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
     [self.exitBtn addTarget:self action:@selector(exitTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.exitBtn];
+}
+
+- (UIButton *)createRollPresetBtn:(NSString *)title frame:(CGRect)frame action:(SEL)action {
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
+    btn.frame = frame;
+    btn.backgroundColor = [UIColor colorWithRed:0.18 green:0.18 blue:0.24 alpha:1.0];
+    btn.layer.cornerRadius = 4.0;
+    btn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+    btn.layer.borderWidth = 0.7;
+    [btn setTitle:title forState:UIControlStateNormal];
+    [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    btn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
+    [btn addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return btn;
+}
+
+- (void)setupRollPanelContents {
+    // 1. Roll Angle Status Label
+    self.rollLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 6, 175, 22)];
+    self.rollLabel.text = @"🔄 Burchak: 0.0° [16:9]";
+    self.rollLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    self.rollLabel.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+    [self.rollPanel addSubview:self.rollLabel];
+
+    // 2. Preset Buttons: 0° (16:9), 90° (9:16), -45°, +45°, 180°
+    CGFloat bx = 188.0;
+    CGFloat bh = 22.0;
+
+    UIButton *b0 = [self createRollPresetBtn:@"📐 0°" frame:CGRectMake(bx, 6, 44, bh) action:@selector(setRoll0)];
+    [self.rollPanel addSubview:b0];
+    bx += 44 + 4;
+
+    UIButton *b90 = [self createRollPresetBtn:@"📱 90°" frame:CGRectMake(bx, 6, 48, bh) action:@selector(setRoll90)];
+    [self.rollPanel addSubview:b90];
+    bx += 48 + 4;
+
+    UIButton *bm45 = [self createRollPresetBtn:@"↩️ -45°" frame:CGRectMake(bx, 6, 52, bh) action:@selector(setRollMinus45)];
+    [self.rollPanel addSubview:bm45];
+    bx += 52 + 4;
+
+    UIButton *bp45 = [self createRollPresetBtn:@"↪️ +45°" frame:CGRectMake(bx, 6, 52, bh) action:@selector(setRoll45)];
+    [self.rollPanel addSubview:bp45];
+    bx += 52 + 4;
+
+    UIButton *b180 = [self createRollPresetBtn:@"🔄 180°" frame:CGRectMake(bx, 6, 54, bh) action:@selector(setRoll180)];
+    [self.rollPanel addSubview:b180];
+
+    // Close panel button
+    UIButton *closePanelBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closePanelBtn.frame = CGRectMake(452, 6, 22, 22);
+    closePanelBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    closePanelBtn.backgroundColor = [UIColor colorWithWhite:0.25 alpha:0.8];
+    closePanelBtn.layer.cornerRadius = 4;
+    [closePanelBtn setTitle:@"✕" forState:UIControlStateNormal];
+    closePanelBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+    [closePanelBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [closePanelBtn addTarget:self action:@selector(toggleRollPanel) forControlEvents:UIControlEventTouchUpInside];
+    [self.rollPanel addSubview:closePanelBtn];
+
+    // 3. Slider Row: -180° [=======O=======] +180°
+    UILabel *minLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, 36, 40, 22)];
+    minLbl.text = @"-180°";
+    minLbl.font = [UIFont boldSystemFontOfSize:9.5];
+    minLbl.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    minLbl.textAlignment = NSTextAlignmentRight;
+    [self.rollPanel addSubview:minLbl];
+
+    self.rollSlider = [[UISlider alloc] initWithFrame:CGRectMake(52, 34, 376, 26)];
+    self.rollSlider.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    self.rollSlider.minimumValue = -180.0f;
+    self.rollSlider.maximumValue = 180.0f;
+    self.rollSlider.value = 0.0f;
+    self.rollSlider.continuous = YES;
+    self.rollSlider.minimumTrackTintColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+    self.rollSlider.maximumTrackTintColor = [UIColor colorWithWhite:0.30 alpha:1.0];
+    self.rollSlider.thumbTintColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+    [self.rollSlider addTarget:self action:@selector(rollSliderChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.rollPanel addSubview:self.rollSlider];
+
+    UILabel *maxLbl = [[UILabel alloc] initWithFrame:CGRectMake(432, 36, 40, 22)];
+    maxLbl.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    maxLbl.text = @"+180°";
+    maxLbl.font = [UIFont boldSystemFontOfSize:9.5];
+    maxLbl.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+    maxLbl.textAlignment = NSTextAlignmentLeft;
+    [self.rollPanel addSubview:maxLbl];
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
@@ -1287,11 +1418,14 @@ static NSString *get_vehicle_name(int modelId) {
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    CGFloat tbW = MIN(560.0, w - 16.0);
+    CGFloat tbW = MIN(550.0, w - 16.0);
     self.topBar.frame = CGRectMake((w - tbW) / 2.0, 10.0, tbW, 40.0);
 
+    CGFloat rpW = MIN(480.0, w - 20.0);
+    self.rollPanel.frame = CGRectMake((w - rpW) / 2.0, 54.0, rpW, 68.0);
+
     self.miniRestoreBtn.frame = CGRectMake(w - 70.0, 12.0, 58.0, 32.0);
-    self.toastLabel.frame = CGRectMake((w - 320.0) / 2.0, 56.0, 320.0, 24.0);
+    self.toastLabel.frame = CGRectMake((w - 340.0) / 2.0, (self.rollPanel.hidden ? 56.0 : 126.0), 340.0, 24.0);
 
     self.joystick.frame = CGRectMake(35.0, h - 145.0, 115.0, 115.0);
 
@@ -1365,17 +1499,103 @@ static NSString *get_vehicle_name(int modelId) {
     }
 }
 
-- (void)orientationTapped {
-    self.isPortraitMode = !self.isPortraitMode;
-    if (self.isPortraitMode) {
-        [self.orientationBtn setTitle:@"📱 9:16" forState:UIControlStateNormal];
-        [self.orientationBtn setTitleColor:[UIColor colorWithRed:1.00 green:0.80 blue:0.20 alpha:1.0] forState:UIControlStateNormal];
-        [self showToast:@"📱 Vertikal 9:16 rejim (TikTok / Reels format)!"];
-    } else {
-        [self.orientationBtn setTitle:@"📐 16:9" forState:UIControlStateNormal];
-        [self.orientationBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        [self showToast:@"📐 Standart 16:9 Landshaft rejim (Normal gorizontal)!"];
+- (void)btn169Tapped {
+    [self setRollDegrees:0.0f];
+    [self showToast:@"📐 Standart 16:9 Landshaft rejim (Normal tekis gorizont)!"];
+}
+
+- (void)btn916Tapped {
+    [self setRollDegrees:90.0f];
+    [self showToast:@"📱 Vertikal 9:16 rejim (TikTok / Reels / Shorts formati)!"];
+}
+
+- (void)toggleRollPanel {
+    self.rollPanel.hidden = !self.rollPanel.hidden;
+    if (!self.rollPanel.hidden) {
+        [self bringSubviewToFront:self.rollPanel];
     }
+    [self setNeedsLayout];
+}
+
+- (void)setRollDegrees:(float)deg {
+    [self updateRollUIWithDegrees:deg];
+}
+
+- (void)setRoll0 {
+    [self setRollDegrees:0.0f];
+    [self showToast:@"📐 16:9 Rejim (0° Gorizontal)"];
+}
+
+- (void)setRoll90 {
+    [self setRollDegrees:90.0f];
+    [self showToast:@"📱 9:16 Rejim (+90° Vertikal TikTok)"];
+}
+
+- (void)setRollMinus45 {
+    [self setRollDegrees:-45.0f];
+    [self showToast:@"↩️ -45° Kinematografik burchak"];
+}
+
+- (void)setRoll45 {
+    [self setRollDegrees:45.0f];
+    [self showToast:@"↪️ +45° Kinematografik burchak"];
+}
+
+- (void)setRoll180 {
+    [self setRollDegrees:180.0f];
+    [self showToast:@"🔄 180° Teskari burchak"];
+}
+
+- (void)rollSliderChanged:(UISlider *)slider {
+    float deg = slider.value;
+    // Magnetic snap to cardinal angles
+    if (fabsf(deg) < 2.5f) deg = 0.0f;
+    else if (fabsf(deg - 90.0f) < 2.5f) deg = 90.0f;
+    else if (fabsf(deg + 90.0f) < 2.5f) deg = -90.0f;
+    else if (fabsf(deg - 45.0f) < 2.0f) deg = 45.0f;
+    else if (fabsf(deg + 45.0f) < 2.0f) deg = -45.0f;
+    else if (fabsf(deg - 180.0f) < 2.5f) deg = 180.0f;
+    else if (fabsf(deg + 180.0f) < 2.5f) deg = -180.0f;
+
+    [self updateRollUIWithDegrees:deg];
+}
+
+- (void)updateRollUIWithDegrees:(float)deg {
+    self.rollAngle = deg * (float)(M_PI / 180.0);
+    self.rollSlider.value = deg;
+
+    NSString *modeName = @"Erkin Qiyalik";
+    if (fabsf(deg) < 1.0f) {
+        modeName = @"16:9 Landshaft";
+    } else if (fabsf(deg - 90.0f) < 1.0f) {
+        modeName = @"9:16 Vertikal";
+    } else if (fabsf(deg + 90.0f) < 1.0f) {
+        modeName = @"9:16 Vertikal (-)";
+    } else if (fabsf(fabsf(deg) - 180.0f) < 1.0f) {
+        modeName = @"180° Teskari";
+    }
+
+    self.rollLabel.text = [NSString stringWithFormat:@"🔄 Burchak: %+.1f° [%@]", deg, modeName];
+    [self.rollToggleBtn setTitle:[NSString stringWithFormat:@"🔄 %+.0f°", deg] forState:UIControlStateNormal];
+
+    // Highlight 16:9 button if angle is 0
+    if (fabsf(deg) < 1.0f) {
+        self.btn169.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+        [self.btn169 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+    } else {
+        self.btn169.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+        [self.btn169 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    }
+
+    // Highlight 9:16 button if angle is 90
+    if (fabsf(deg - 90.0f) < 1.0f) {
+        self.btn916.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+        [self.btn916 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+    } else {
+        self.btn916.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+        [self.btn916 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    }
+
     [self applyCameraToGame];
 }
 
@@ -1388,7 +1608,7 @@ static NSString *get_vehicle_name(int modelId) {
         [self showToast:@"❄️ Butun dunyo to'xtatildi (Freeze World)!"];
     } else {
         self.freezeBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
-        [self.freezeBtn setTitle:@"🧊 Muzlatish" forState:UIControlStateNormal];
+        [self.freezeBtn setTitle:@"🧊 Muz" forState:UIControlStateNormal];
         [self showToast:@"▶️ O'yin vaqti tiklandi!"];
     }
 }
@@ -1401,6 +1621,7 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)toggleHudVisibility {
     self.isHudHidden = !self.isHudHidden;
     self.topBar.hidden = self.isHudHidden;
+    self.rollPanel.hidden = YES; // Always hide roll panel when HUD is hidden
     self.joystick.hidden = self.isHudHidden;
     self.ascendBtn.hidden = self.isHudHidden;
     self.descendBtn.hidden = self.isHudHidden;
@@ -1452,9 +1673,9 @@ static NSString *get_vehicle_name(int modelId) {
     float initYaw = 0.0f;
     float initPitch = -0.05f;
     if (cam) {
-        float fwdX = *(float *)(cam + 0x980);
-        float fwdY = *(float *)(cam + 0x984);
-        float fwdZ = *(float *)(cam + 0x988);
+        float fwdX = *(float *)(cam + 0x990);
+        float fwdY = *(float *)(cam + 0x994);
+        float fwdZ = *(float *)(cam + 0x998);
         float lenH = sqrtf(fwdX * fwdX + fwdY * fwdY);
         if (lenH > 0.01f) {
             initYaw = atan2f(fwdX, fwdY);
@@ -1468,6 +1689,19 @@ static NSString *get_vehicle_name(int modelId) {
     self.targetPitch = self.pitch;
     self.velX = self.velY = self.velZ = 0.0f;
     self.elevInput = 0.0f;
+
+    // Reset roll to 0.0° (16:9 standard landscape)
+    self.rollAngle = 0.0f;
+    self.rollPanel.hidden = YES;
+    [self updateRollUIWithDegrees:0.0f];
+
+    // Take camera control
+    float camTarget[3] = {
+        self.droneX + sinf(self.yaw) * cosf(self.pitch) * 25.0f,
+        self.droneY + cosf(self.yaw) * cosf(self.pitch) * 25.0f,
+        self.droneZ + sinf(self.pitch) * 25.0f
+    };
+    camera_take_control(camTarget, 2);
 
     // Apply initial position immediately
     [self applyCameraToGame];
@@ -1493,6 +1727,7 @@ static NSString *get_vehicle_name(int modelId) {
         self.isWorldFrozen = NO;
     }
 
+    self.rollPanel.hidden = YES;
     camera_set_fov(70.0f);
     camera_restore();
 }
@@ -1560,20 +1795,35 @@ static NSString *get_vehicle_name(int modelId) {
     float cosYaw = cosf(self.yaw);
     float sinYaw = sinf(self.yaw);
 
-    // Forward vector in world coordinates
+    // 1. Forward (look) vector in GTA SA world coordinates (+X East, +Y North, +Z Up)
     float fwdX = sinYaw * cosPitch;
     float fwdY = cosYaw * cosPitch;
     float fwdZ = sinPitch;
 
-    // Right vector (horizontal strafe)
-    float rightX = cosYaw;
-    float rightY = -sinYaw;
-    float rightZ = 0.0f;
+    // 2. Base horizontal Right vector (orthogonal to fwd when pitch=0, roll=0)
+    float baseRightX = cosYaw;
+    float baseRightY = -sinYaw;
+    float baseRightZ = 0.0f;
 
-    // Up vector = cross(right, forward)
-    float upX = -rightY * fwdZ;
-    float upY = rightX * fwdZ;
-    float upZ = rightX * fwdY - rightY * fwdX;
+    // 3. Base Up vector = cross(baseRight, fwd)
+    // cross(A, B): (Ay*Bz - Az*By, Az*Bx - Ax*Bz, Ax*By - Ay*Bx)
+    float baseUpX = baseRightY * fwdZ;
+    float baseUpY = -baseRightX * fwdZ;
+    float baseUpZ = baseRightX * fwdY - baseRightY * fwdX;
+
+    // 4. Continuous roll rotation around look axis (fwd) by self.rollAngle
+    float cosR = cosf(self.rollAngle);
+    float sinR = sinf(self.rollAngle);
+
+    // right = baseRight * cosR + baseUp * sinR
+    float rightX = baseRightX * cosR + baseUpX * sinR;
+    float rightY = baseRightY * cosR + baseUpY * sinR;
+    float rightZ = baseRightZ * cosR + baseUpZ * sinR;
+
+    // up = -baseRight * sinR + baseUp * cosR
+    float upX = -baseRightX * sinR + baseUpX * cosR;
+    float upY = -baseRightY * sinR + baseUpY * cosR;
+    float upZ = -baseRightZ * sinR + baseUpZ * cosR;
 
     float camPos[3] = { self.droneX, self.droneY, self.droneZ };
     float camTarget[3] = {
@@ -1586,8 +1836,8 @@ static NSString *get_vehicle_name(int modelId) {
     if (activeIdx > 2) activeIdx = 0;
     uintptr_t activeCam = cam + (uintptr_t)activeIdx * 0x228;
 
-    // 1. Force CCam mode to FIXED (14)
-    *(int16_t *)(activeCam + 0x186) = 14;
+    // Direct memory flags to lock camera under script/drone control
+    *(int16_t *)(activeCam + 0x186) = 14;  // MODE_FIXED
     *(int16_t *)(cam + 0xc64) = 14;
     *(int32_t *)(cam + 0xb4) = 1;          // whoTakesControl = 1 (SCRIPT)
     *(uint16_t *)(cam + 0x31) = 0x100;
@@ -1596,7 +1846,7 @@ static NSString *get_vehicle_name(int modelId) {
     *(int16_t *)(cam + 0xc68) = 2;         // JUMP_CUT
     *(uint8_t *)(cam + 0x54) = 0;
 
-    // 2. Direct memory update into activeCam struct
+    // Direct activeCam vectors
     *(float *)(activeCam + 0x2b0) = camPos[0];
     *(float *)(activeCam + 0x2b4) = camPos[1];
     *(float *)(activeCam + 0x2b8) = camPos[2];
@@ -1605,57 +1855,38 @@ static NSString *get_vehicle_name(int modelId) {
     *(float *)(activeCam + 0x2c0) = fwdY;
     *(float *)(activeCam + 0x2c4) = fwdZ;
 
-    if (self.isPortraitMode) {
-        *(float *)(activeCam + 0x2c8) = rightX;
-        *(float *)(activeCam + 0x2cc) = rightY;
-        *(float *)(activeCam + 0x2d0) = rightZ;
-    } else {
-        *(float *)(activeCam + 0x2c8) = upX;
-        *(float *)(activeCam + 0x2cc) = upY;
-        *(float *)(activeCam + 0x2d0) = upZ;
-    }
+    *(float *)(activeCam + 0x2c8) = upX;
+    *(float *)(activeCam + 0x2cc) = upY;
+    *(float *)(activeCam + 0x2d0) = upZ;
 
     // Set FOV in activeCam
     *(float *)(activeCam + 0x8c) = self.currentFOV;
     *(float *)(activeCam + 0x90) = self.currentFOV;
     *(float *)(activeCam + 0x94) = self.currentFOV;
 
-    // 3. Engine fixed pos & target buffers
+    // Engine fixed pos & target buffers
     camera_set_fixed_pos(camPos, camTarget);
-    camera_take_control(camTarget, 2);
 
-    // 4. Update TheCamera.m_mCameraMatrix directly for instantaneous 60fps render
+    // Direct TheCamera.m_mCameraMatrix update (RenderWare RwMatrix)
+    // 0x970: right vector
+    *(float *)(cam + 0x970) = rightX;
+    *(float *)(cam + 0x974) = rightY;
+    *(float *)(cam + 0x978) = rightZ;
+
+    // 0x980: up vector
+    *(float *)(cam + 0x980) = upX;
+    *(float *)(cam + 0x984) = upY;
+    *(float *)(cam + 0x988) = upZ;
+
+    // 0x990: at / forward vector
+    *(float *)(cam + 0x990) = fwdX;
+    *(float *)(cam + 0x994) = fwdY;
+    *(float *)(cam + 0x998) = fwdZ;
+
+    // 0x9a0: position vector
     *(float *)(cam + 0x9a0) = camPos[0];
     *(float *)(cam + 0x9a4) = camPos[1];
     *(float *)(cam + 0x9a8) = camPos[2];
-
-    if (self.isPortraitMode) {
-        // 9:16 Vertical / Portrait Mode (Camera rolled 90 degrees for TikTok/Shorts)
-        *(float *)(cam + 0x970) = upX;
-        *(float *)(cam + 0x974) = upY;
-        *(float *)(cam + 0x978) = upZ;
-
-        *(float *)(cam + 0x980) = -rightX;
-        *(float *)(cam + 0x984) = -rightY;
-        *(float *)(cam + 0x988) = -rightZ;
-
-        *(float *)(cam + 0x990) = fwdX;
-        *(float *)(cam + 0x994) = fwdY;
-        *(float *)(cam + 0x998) = fwdZ;
-    } else {
-        // 16:9 Standard Landscape Mode (Normal horizon, perfectly level!)
-        *(float *)(cam + 0x970) = rightX;
-        *(float *)(cam + 0x974) = rightY;
-        *(float *)(cam + 0x978) = rightZ;
-
-        *(float *)(cam + 0x980) = upX;
-        *(float *)(cam + 0x984) = upY;
-        *(float *)(cam + 0x988) = upZ;
-
-        *(float *)(cam + 0x990) = fwdX;
-        *(float *)(cam + 0x994) = fwdY;
-        *(float *)(cam + 0x998) = fwdZ;
-    }
 }
 
 @end
@@ -2130,6 +2361,16 @@ static NSString *get_vehicle_name(int modelId) {
                 @"icon": @"📍",
                 @"title": @"CJ Teleportatsiya",
                 @"desc": @"Dron uchib borgan istalgan koordinataga CJ yoki mashinangizni ko'chirish"
+            },
+            @{
+                @"icon": @"📐",
+                @"title": @"16:9 & 9:16 Rejimlar (TikTok / Reels)",
+                @"desc": @"Normal gorizontal 16:9 yoki bir tugma bilan TikTok vertikal 9:16 format"
+            },
+            @{
+                @"icon": @"🔄",
+                @"title": @"Erkin Qiyalik & Bukish Slayderi",
+                @"desc": @"-180° dan +180° gacha istalgan burchakda silliq burish va qiyalashtirish"
             },
             @{
                 @"icon": @"👁️",

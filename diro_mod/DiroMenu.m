@@ -53,27 +53,87 @@ static uintptr_t get_player_ped(void) {
 
 static uintptr_t g_lastSpawnedVehicle = 0;
 
-// CVehicle* FindPlayerVehicle(int playerIndex = -1, bool bIncludeRemote = false) at 0x190f1c
+// Helper to get entity coordinates (CPed or CVehicle)
+static void get_entity_position(uintptr_t entity, float *outX, float *outY, float *outZ) {
+    if (!entity) return;
+    uintptr_t m = *(uintptr_t *)(entity + 0x18);
+    float *pos = (float *)(m ? (m + 0x30) : (entity + 0x8));
+    if (outX) *outX = pos[0];
+    if (outY) *outY = pos[1];
+    if (outZ) *outZ = pos[2];
+}
+
+// Robust target vehicle detection:
+// 1. If player is inside a vehicle (ped + 0x708), return it immediately.
+// 2. If player is on foot, scan CPools::ms_pVehiclePool (0x734fe0) and find the closest active vehicle within 60 meters.
+// 3. Fall back to g_lastSpawnedVehicle.
+static uintptr_t get_target_vehicle(void) {
+    uintptr_t ped = get_player_ped();
+    if (ped) {
+        uintptr_t v = *(uintptr_t *)(ped + 0x708);
+        if (v) return v;
+    }
+
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t poolPtr = (uintptr_t)slide + 0x100000000ULL + 0x734fe0;
+    uintptr_t pool = *(uintptr_t *)poolPtr;
+
+    if (pool && ped) {
+        uintptr_t objects = *(uintptr_t *)(pool + 0);
+        uint8_t *byteMap = *(uint8_t **)(pool + 8);
+        int32_t size = *(int32_t *)(pool + 0x10);
+
+        if (objects && byteMap && size > 0) {
+            float px = 0.0f, py = 0.0f, pz = 0.0f;
+            get_entity_position(ped, &px, &py, &pz);
+
+            uintptr_t closestVeh = 0;
+            float minDistanceSq = 60.0f * 60.0f; // within 60 meters
+
+            for (int32_t i = 0; i < size; i++) {
+                // In CPool, slot is active if (byteMap[i] & 0x80) == 0
+                if ((byteMap[i] & 0x80) != 0) continue;
+
+                uintptr_t veh = objects + (uintptr_t)i * 3176ULL; // sizeof(CVehicle) = 3176 (0xc68)
+
+                float vx = 0.0f, vy = 0.0f, vz = 0.0f;
+                get_entity_position(veh, &vx, &vy, &vz);
+
+                float dx = vx - px;
+                float dy = vy - py;
+                float dz = vz - pz;
+                float distSq = dx * dx + dy * dy + dz * dz;
+
+                if (distSq < minDistanceSq) {
+                    minDistanceSq = distSq;
+                    closestVeh = veh;
+                }
+            }
+
+            if (closestVeh) {
+                return closestVeh;
+            }
+        }
+    }
+
+    if (g_lastSpawnedVehicle) {
+        return g_lastSpawnedVehicle;
+    }
+
+    return 0;
+}
+
 static uintptr_t get_player_vehicle(void) {
     uintptr_t ped = get_player_ped();
     if (ped) {
         uintptr_t v = *(uintptr_t *)(ped + 0x708);
         if (v) return v;
     }
-    intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x190f1c;
-    uintptr_t (*fn)(int, bool) = (uintptr_t(*)(int, bool))addr;
-    if (fn) {
-        return fn(-1, false);
-    }
     return 0;
 }
 
 static uintptr_t get_current_or_last_vehicle(void) {
-    uintptr_t v = get_player_vehicle();
-    if (v) return v;
-    if (g_lastSpawnedVehicle) return g_lastSpawnedVehicle;
-    return 0;
+    return get_target_vehicle();
 }
 
 // CCheat::VehicleCheat(int modelId) at 0xaf4d4
@@ -87,32 +147,50 @@ static void trigger_vehicle_cheat(int modelId) {
             g_lastSpawnedVehicle = veh;
         }
     }
+
+    // Refresh closest vehicle immediately
+    uintptr_t target = get_target_vehicle();
+    if (target) {
+        g_lastSpawnedVehicle = target;
+    }
 }
 
-// Vehicle Color Changer: Sets primary and secondary colors at offsets 0x574, 0x575, 0x576, 0x577, global palette at 0x7e3532, and repaints clump materials via 0x231908
+// Vehicle Color Changer:
+// Sets vehicle color slots 0x574..0x577, sets bit 2 of 0x56f (preventing SetupRender reset),
+// clears remap/paintjob (0x734 and SetRemap 0x408b20), and updates CVehicleModelInfo::SetColour at 0x231a34.
+// CVehicle::SetupRender (0x408e00) will automatically render the new colors every frame.
 static BOOL change_vehicle_color(uint8_t primary, uint8_t secondary) {
-    uintptr_t veh = get_current_or_last_vehicle();
+    uintptr_t veh = get_target_vehicle();
     if (!veh) return NO;
 
-    // 1. Write the 4 vehicle color slots directly at 0x574, 0x575, 0x576, 0x577
+    intptr_t slide = get_gtasa_slide();
+
+    // 1. Vehicle color slots
     *(uint8_t *)(veh + 0x574) = primary;
     *(uint8_t *)(veh + 0x575) = secondary;
     *(uint8_t *)(veh + 0x576) = primary;
     *(uint8_t *)(veh + 0x577) = secondary;
 
-    // Direct backup at legacy offsets 0x17d, 0x17e
+    // Direct backup at legacy and alternative offsets
     *(uint8_t *)(veh + 0x17d) = primary;
     *(uint8_t *)(veh + 0x17e) = secondary;
+    *(uint8_t *)(veh + 0x704) = primary;
+    *(uint8_t *)(veh + 0x705) = secondary;
+    *(uint8_t *)(veh + 0x706) = primary;
+    *(uint8_t *)(veh + 0x707) = secondary;
 
-    intptr_t slide = get_gtasa_slide();
+    // 2. Prevent SetupRender from forcing white (1) on color 0
+    *(uint8_t *)(veh + 0x56f) |= 0x04;
 
-    // 2. Set global palette indices at 0x7e3532 - 0x7e3535
-    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3532) = primary;
-    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3533) = secondary;
-    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3534) = primary;
-    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3535) = secondary;
+    // 3. Clear any paintjob / remap texture that overrides the body color
+    *(uint32_t *)(veh + 0x734) = 0;
+    uintptr_t setRemapAddr = (uintptr_t)slide + 0x100000000ULL + 0x408b20;
+    void (*setRemapFn)(uintptr_t, int) = (void(*)(uintptr_t, int))setRemapAddr;
+    if (setRemapFn) {
+        setRemapFn(veh, -1);
+    }
 
-    // 3. If modelInfo is available, update modelInfo colors at 0x65a - 0x65d
+    // 4. Update modelInfo colors and call CVehicleModelInfo::SetColour
     int16_t modelIndex = *(int16_t *)(veh + 0x32);
     if (modelIndex >= 400 && modelIndex <= 611) {
         uintptr_t modelArray = (uintptr_t)slide + 0x100000000ULL + 0x7bc170;
@@ -122,18 +200,21 @@ static BOOL change_vehicle_color(uint8_t primary, uint8_t secondary) {
             *(uint8_t *)(modelInfo + 0x65b) = secondary;
             *(uint8_t *)(modelInfo + 0x65c) = primary;
             *(uint8_t *)(modelInfo + 0x65d) = secondary;
+
+            uintptr_t setColourAddr = (uintptr_t)slide + 0x100000000ULL + 0x231a34;
+            void (*setColourFn)(uintptr_t, uint8_t, uint8_t, uint8_t, uint8_t) =
+                (void(*)(uintptr_t, uint8_t, uint8_t, uint8_t, uint8_t))setColourAddr;
+            if (setColourFn) {
+                setColourFn(modelInfo, primary, secondary, primary, secondary);
+            }
         }
     }
 
-    // 4. Repaint 3D model clump materials immediately via 0x231908
-    uintptr_t clump = *(uintptr_t *)(veh + 0x20);
-    if (clump) {
-        uintptr_t repaintAddr = (uintptr_t)slide + 0x100000000ULL + 0x231908;
-        void (*repaintFn)(uintptr_t) = (void(*)(uintptr_t))repaintAddr;
-        if (repaintFn) {
-            repaintFn(clump);
-        }
-    }
+    // 5. Update global palette indices at 0x7e3532 - 0x7e3535
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3532) = primary;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3533) = secondary;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3534) = primary;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3535) = secondary;
 
     return YES;
 }
@@ -1558,7 +1639,7 @@ static NSString *get_vehicle_name(int modelId) {
     if (ok) {
         [self showToast:[NSString stringWithFormat:@"✅ Mashina rangi o'zgartirildi! (ID: %d)", cid]];
     } else {
-        [self showToast:@"⚠️ Avval mashinaga o'tiring yoki mashina chiqaring!"];
+        [self showToast:@"⚠️ Yaqin atrofda mashina topilmadi! Mashina chiqaring yoki unga yaqinlashing."];
     }
 }
 
@@ -1581,7 +1662,7 @@ static NSString *get_vehicle_name(int modelId) {
     if (ok) {
         [self showToast:[NSString stringWithFormat:@"✅ Mashina rangi o'zgartirildi! (ID: %d)", cid]];
     } else {
-        [self showToast:@"⚠️ Avval mashinaga o'tiring yoki mashina chiqaring!"];
+        [self showToast:@"⚠️ Yaqin atrofda mashina topilmadi! Mashina chiqaring yoki unga yaqinlashing."];
     }
 }
 

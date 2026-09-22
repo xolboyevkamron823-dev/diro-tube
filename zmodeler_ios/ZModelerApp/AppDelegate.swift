@@ -1,6 +1,7 @@
 import UIKit
 
 @main
+@objc(AppDelegate)
 class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
@@ -8,15 +9,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        let win = UIWindow(frame: UIScreen.main.bounds)
+        win.backgroundColor = UIColor(red: 15/255.0, green: 17/255.0, blue: 23/255.0, alpha: 1.0)
+        let vc = ViewController()
+        win.rootViewController = vc
+        self.window = win
+        win.makeKeyAndVisible()
         return true
-    }
-
-    // MARK: UISceneSession Lifecycle
-    func application(
-        _ application: UIApplication,
-        configurationForConnecting connectingSceneSession: UISceneSession,
-        options: UIScene.ConnectionOptions
-    ) -> UISceneConfiguration {
-        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 }

@@ -69,10 +69,13 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         }
     }
 
+    private var currentPickerMode: String = "open"
+
     // MARK: - WKScriptMessageHandler
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "openDocumentPicker" {
-            openDocumentPicker()
+            let mode = (message.body as? [String: Any])?["mode"] as? String ?? "open"
+            openDocumentPicker(mode: mode)
         } else if message.name == "exportDFF" {
             guard let dict = message.body as? [String: Any],
                   let base64 = dict["base64Data"] as? String,
@@ -82,7 +85,8 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
     }
 
     // MARK: - Native Document Picker
-    private func openDocumentPicker() {
+    private func openDocumentPicker(mode: String) {
+        self.currentPickerMode = mode
         let picker: UIDocumentPickerViewController
         if #available(iOS 14.0, *) {
             picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .item], asCopy: true)
@@ -102,7 +106,7 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
             let base64 = data.base64EncodedString()
             let fileName = selectedUrl.lastPathComponent
 
-            let js = "window.onNativeFileOpened('\(base64)', '\(fileName)');"
+            let js = "window.onNativeFileOpened('\(base64)', '\(fileName)', '\(self.currentPickerMode)');"
             webView.evaluateJavaScript(js, completionHandler: nil)
 
             let generator = UIImpactFeedbackGenerator(style: .medium)

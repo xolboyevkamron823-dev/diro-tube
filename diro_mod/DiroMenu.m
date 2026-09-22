@@ -328,24 +328,63 @@ static void set_game_rotation(float angle) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIView *gv = get_game_view();
         if (gv) {
-            if (fabsf(angle) < 0.001f) {
-                gv.transform = CGAffineTransformIdentity;
-            } else {
-                gv.transform = CGAffineTransformMakeRotation(angle);
-            }
+            // NEVER tilt 2D game view window - always keep identity!
+            gv.transform = CGAffineTransformIdentity;
         }
     });
 }
 
 static void set_game_hud_visible(BOOL visible) {
     intptr_t slide = get_gtasa_slide();
-    uintptr_t hudFlag = (uintptr_t)slide + 0x100000000ULL + 0x4e333c;
-    *(uint8_t *)hudFlag = visible ? 1 : 0;
+    if (!slide) return;
+    uintptr_t base = (uintptr_t)slide + 0x100000000ULL;
 
+    // 1. Native CHud draw flags
+    *(uint8_t *)(base + 0x4e333c) = visible ? 1 : 0;
+    *(uint32_t *)(base + 0x73bfe0) = visible ? 1 : 0;
+
+    // 2. TheCamera widescreen/cutscene mode (0 hides native radar, health bar, money, weapon icon)
     uintptr_t cam = get_the_camera();
     if (cam) {
         *(uint16_t *)(cam + 0x42) = visible ? 0x100 : 0;
     }
+
+    // 3. Native mobile buttons and touch widgets (CWidgetPool and managers from 0x7952d0 to 0x795320)
+    // When mgr+0x58 is 0, CWidgetPool::Draw completely skips drawing ANY touch buttons (bike, fist, run, etc.)!
+    for (uintptr_t off = 0x7952d0; off <= 0x795320; off += 8) {
+        uintptr_t *pMgr = (uintptr_t *)(base + off);
+        if (pMgr && *pMgr) {
+            uintptr_t mgr = *pMgr;
+            *(uint8_t *)(mgr + 0x58) = visible ? 255 : 0;
+            *(uint8_t *)(mgr + 0x59) = visible ? 1 : 0;
+        }
+    }
+
+    // 4. Global active CWidget linked list at 0x79bbd0
+    uintptr_t *pHead = (uintptr_t *)(base + 0x79bbd0);
+    if (pHead && *pHead) {
+        uintptr_t cur = *pHead;
+        int safety = 0;
+        while (cur && safety++ < 250) {
+            *(uint8_t *)(cur + 0x58) = visible ? 255 : 0;
+            *(uint8_t *)(cur + 0x59) = visible ? 1 : 0;
+            cur = *(uintptr_t *)(cur + 0xd0);
+        }
+    }
+
+    // 5. Hide any native subviews on game view
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *gv = get_game_view();
+        if (gv) {
+            gv.transform = CGAffineTransformIdentity;
+            for (UIView *sub in gv.subviews) {
+                if (sub != g_diroWindow && ![sub isKindOfClass:NSClassFromString(@"DiroWindow")] &&
+                    ![sub isKindOfClass:NSClassFromString(@"EAGLView")]) {
+                    sub.hidden = !visible;
+                }
+            }
+        }
+    });
 }
 
 static void set_game_frozen(BOOL freeze) {
@@ -985,6 +1024,9 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UILabel *fovLabel;
 @property (nonatomic, strong) UIButton *btn169;
 @property (nonatomic, strong) UIButton *btn916;
+@property (nonatomic, strong) UIView *mask916Left;
+@property (nonatomic, strong) UIView *mask916Right;
+@property (nonatomic, assign) BOOL is916Mode;
 @property (nonatomic, strong) UIButton *rollToggleBtn;
 @property (nonatomic, strong) UIView *rollPanel;
 @property (nonatomic, strong) UISlider *rollSlider;
@@ -1051,6 +1093,19 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 - (void)setupUI {
+    self.is916Mode = NO;
+    self.mask916Left = [[UIView alloc] initWithFrame:CGRectZero];
+    self.mask916Left.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.85];
+    self.mask916Left.hidden = YES;
+    self.mask916Left.userInteractionEnabled = NO;
+    [self addSubview:self.mask916Left];
+
+    self.mask916Right = [[UIView alloc] initWithFrame:CGRectZero];
+    self.mask916Right.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.85];
+    self.mask916Right.hidden = YES;
+    self.mask916Right.userInteractionEnabled = NO;
+    [self addSubview:self.mask916Right];
+
     // 1. Left Virtual Joystick (visual feedback)
     self.joystick = [[DiroVirtualJoystickView alloc] initWithFrame:CGRectMake(0, 0, 115, 115)];
     [self addSubview:self.joystick];
@@ -1386,6 +1441,22 @@ static NSString *get_vehicle_name(int modelId) {
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
+    if (self.is916Mode) {
+        CGFloat contentW = h * (9.0 / 16.0);
+        CGFloat sideW = (w - contentW) / 2.0;
+        if (sideW > 0) {
+            self.mask916Left.frame = CGRectMake(0, 0, sideW, h);
+            self.mask916Right.frame = CGRectMake(w - sideW, 0, sideW, h);
+            self.mask916Left.hidden = NO;
+            self.mask916Right.hidden = NO;
+            [self sendSubviewToBack:self.mask916Right];
+            [self sendSubviewToBack:self.mask916Left];
+        }
+    } else {
+        self.mask916Left.hidden = YES;
+        self.mask916Right.hidden = YES;
+    }
+
     CGFloat tbW = MIN(550.0, w - 16.0);
     self.topBar.frame = CGRectMake((w - tbW) / 2.0, 10.0, tbW, 40.0);
 
@@ -1456,6 +1527,9 @@ static NSString *get_vehicle_name(int modelId) {
             self.targetPitch -= (float)dy * 0.0045f;
             if (self.targetPitch > 1.45f) self.targetPitch = 1.45f;
             if (self.targetPitch < -1.45f) self.targetPitch = -1.45f;
+
+            while (self.targetYaw > (float)M_PI) self.targetYaw -= (float)(2.0 * M_PI);
+            while (self.targetYaw < -(float)M_PI) self.targetYaw += (float)(2.0 * M_PI);
         }
     }
 }
@@ -1536,19 +1610,39 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 - (void)btn169Tapped {
-    [self setRollDegrees:0.0f];
-    [self showToast:@"📐 Standart 16:9 Landshaft rejim (Normal tekis gorizont)!"];
+    self.is916Mode = NO;
+    self.mask916Left.hidden = YES;
+    self.mask916Right.hidden = YES;
+    self.btn169.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+    [self.btn169 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+    self.btn916.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    [self.btn916 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    set_game_rotation(0.0f);
+    [self showToast:@"📐 Standart 16:9 Landshaft rejim (To'liq ekran)!"];
+    [self setNeedsLayout];
 }
 
 - (void)btn916Tapped {
-    [self setRollDegrees:90.0f];
-    [self showToast:@"📱 Vertikal 9:16 rejim (TikTok / Reels / Shorts formati)!"];
+    self.is916Mode = YES;
+    self.mask916Left.hidden = NO;
+    self.mask916Right.hidden = NO;
+    self.btn916.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+    [self.btn916 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+    self.btn169.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    [self.btn169 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    set_game_rotation(0.0f);
+    [self showToast:@"📱 Vertikal 9:16 rejim (TikTok / Reels / Shorts maskasi faollashdi)!"];
+    [self setNeedsLayout];
 }
 
 - (void)toggleRollPanel {
     self.rollPanel.hidden = !self.rollPanel.hidden;
     if (!self.rollPanel.hidden) {
         [self bringSubviewToFront:self.rollPanel];
+        float deg = self.yaw * (float)(180.0 / M_PI);
+        while (deg > 180.0f) deg -= 360.0f;
+        while (deg < -180.0f) deg += 360.0f;
+        self.rollSlider.value = deg;
     }
     [self setNeedsLayout];
 }
@@ -1559,27 +1653,27 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)setRoll0 {
     [self setRollDegrees:0.0f];
-    [self showToast:@"📐 16:9 Rejim (0° Gorizontal)"];
+    [self showToast:@"🧭 Kamera: 0° (Oldinga qarash)"];
 }
 
 - (void)setRoll90 {
     [self setRollDegrees:90.0f];
-    [self showToast:@"📱 9:16 Rejim (+90° Vertikal TikTok)"];
+    [self showToast:@"🧭 Kamera: +90° (O'ngga qarash)"];
 }
 
 - (void)setRollMinus45 {
     [self setRollDegrees:-45.0f];
-    [self showToast:@"↩️ -45° Kinematografik burchak"];
+    [self showToast:@"🧭 Kamera: -45° (Chapga qarash)"];
 }
 
 - (void)setRoll45 {
     [self setRollDegrees:45.0f];
-    [self showToast:@"↪️ +45° Kinematografik burchak"];
+    [self showToast:@"🧭 Kamera: +45° (O'ngga qarash)"];
 }
 
 - (void)setRoll180 {
     [self setRollDegrees:180.0f];
-    [self showToast:@"🔄 180° Teskari burchak"];
+    [self showToast:@"🧭 Kamera: 180° (Orqaga qarash)"];
 }
 
 - (void)rollSliderChanged:(UISlider *)slider {
@@ -1597,42 +1691,32 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 - (void)updateRollUIWithDegrees:(float)deg {
-    self.rollAngle = deg * (float)(M_PI / 180.0);
     self.rollSlider.value = deg;
+    float rad = deg * (float)(M_PI / 180.0);
+    // Smooth 3D camera rotation (Yaw / Heading)
+    self.targetYaw = rad;
+    self.yaw = rad;
 
-    NSString *modeName = @"Erkin Qiyalik";
+    NSString *dir = @"Oldinga (Shimol)";
     if (fabsf(deg) < 1.0f) {
-        modeName = @"16:9 Landshaft";
-    } else if (fabsf(deg - 90.0f) < 1.0f) {
-        modeName = @"9:16 Vertikal";
-    } else if (fabsf(deg + 90.0f) < 1.0f) {
-        modeName = @"9:16 Vertikal (-)";
-    } else if (fabsf(fabsf(deg) - 180.0f) < 1.0f) {
-        modeName = @"180° Teskari";
+        dir = @"Oldinga (Shimol)";
+    } else if (fabsf(deg - 90.0f) < 2.0f) {
+        dir = @"O'ngga (Sharq)";
+    } else if (fabsf(deg + 90.0f) < 2.0f) {
+        dir = @"Chapga (G'arb)";
+    } else if (fabsf(fabsf(deg) - 180.0f) < 2.0f) {
+        dir = @"Orqaga (Janub)";
+    } else if (deg > 0) {
+        dir = [NSString stringWithFormat:@"O'ngga %.0f°", deg];
+    } else {
+        dir = [NSString stringWithFormat:@"Chapga %.0f°", -deg];
     }
 
-    self.rollLabel.text = [NSString stringWithFormat:@"🔄 Burchak: %+.1f° [%@]", deg, modeName];
+    self.rollLabel.text = [NSString stringWithFormat:@"🔄 Burish: %+.1f° [%@]", deg, dir];
     [self.rollToggleBtn setTitle:[NSString stringWithFormat:@"🔄 %+.0f°", deg] forState:UIControlStateNormal];
 
-    // Highlight 16:9 button if angle is 0
-    if (fabsf(deg) < 1.0f) {
-        self.btn169.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
-        [self.btn169 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
-    } else {
-        self.btn169.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
-        [self.btn169 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    }
-
-    // Highlight 9:16 button if angle is 90
-    if (fabsf(deg - 90.0f) < 1.0f) {
-        self.btn916.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
-        [self.btn916 setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
-    } else {
-        self.btn916.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
-        [self.btn916 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    }
-
-    set_game_rotation(self.rollAngle);
+    // Ensure 2D game view is NEVER tilted
+    set_game_rotation(0.0f);
     [self applyCameraToGame];
 }
 
@@ -1772,6 +1856,8 @@ static NSString *get_vehicle_name(int modelId) {
     }
 
     self.rollPanel.hidden = YES;
+    self.mask916Left.hidden = YES;
+    self.mask916Right.hidden = YES;
     camera_set_fov(70.0f);
     camera_restore();
 
@@ -1794,6 +1880,9 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)onFrameUpdate:(CADisplayLink *)link {
     if (!self.isActive) return;
+
+    // Enforce 100% complete suppression of all native HUD and touch buttons every single frame
+    set_game_hud_visible(NO);
 
     float dt = (link.duration > 0.001) ? (float)link.duration : (1.0f / 60.0f);
     if (dt > 0.1f) dt = 1.0f / 60.0f;
@@ -1833,6 +1922,12 @@ static NSString *get_vehicle_name(int modelId) {
     float rotDamping = 0.40f;
     self.yaw += (self.targetYaw - self.yaw) * rotDamping;
     self.pitch += (self.targetPitch - self.pitch) * rotDamping;
+
+    // Synchronize rotation button title with live camera heading
+    float liveYawDeg = self.yaw * (float)(180.0 / M_PI);
+    while (liveYawDeg > 180.0f) liveYawDeg -= 360.0f;
+    while (liveYawDeg < -180.0f) liveYawDeg += 360.0f;
+    [self.rollToggleBtn setTitle:[NSString stringWithFormat:@"🔄 %+.0f°", liveYawDeg] forState:UIControlStateNormal];
 
     [self applyCameraToGame];
 }

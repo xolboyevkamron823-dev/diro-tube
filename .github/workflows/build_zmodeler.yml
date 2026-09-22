@@ -1,0 +1,31 @@
+name: Build ZModeler iOS (Diro 3D Studio)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'zmodeler_ios/**'
+      - '.github/workflows/build_zmodeler.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make build script executable
+        run: |
+          chmod +x zmodeler_ios/build_app.sh
+
+      - name: Build ZModeler iOS App
+        run: |
+          cd zmodeler_ios
+          ./build_app.sh
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZModeler_iOS_IPA
+          path: zmodeler_ios/ZModeler_iOS.ipa
+          retention-days: 7

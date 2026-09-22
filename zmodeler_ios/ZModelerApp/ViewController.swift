@@ -89,33 +89,43 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         self.currentPickerMode = mode
         let picker: UIDocumentPickerViewController
         if #available(iOS 14.0, *) {
-            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .item], asCopy: true)
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .item, .image], asCopy: true)
         } else {
-            picker = UIDocumentPickerViewController(documentTypes: ["public.data", "public.item"], in: .import)
+            picker = UIDocumentPickerViewController(documentTypes: ["public.data", "public.item", "public.image"], in: .import)
         }
         picker.delegate = self
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = true
         present(picker, animated: true)
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        guard let selectedUrl = urls.first else { return }
+        guard !urls.isEmpty else { return }
 
-        do {
-            let data = try Data(contentsOf: selectedUrl)
-            let base64 = data.base64EncodedString()
-            let fileName = selectedUrl.lastPathComponent
-
-            let js = "window.onNativeFileOpened('\(base64)', '\(fileName)', '\(self.currentPickerMode)');"
-            webView.evaluateJavaScript(js, completionHandler: nil)
-
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
-        } catch {
-            let alert = UIAlertController(title: "Xatolik", message: "Faylni o'qishda xato: \(error.localizedDescription)", preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
+        // Sort so .dff is loaded first, then .txd, then images
+        let sortedUrls = urls.sorted { a, b in
+            let extA = a.pathExtension.lowercased()
+            let extB = b.pathExtension.lowercased()
+            if extA == "dff" { return true }
+            if extB == "dff" { return false }
+            if extA == "txd" { return true }
+            return false
         }
+
+        for selectedUrl in sortedUrls {
+            do {
+                let data = try Data(contentsOf: selectedUrl)
+                let base64 = data.base64EncodedString()
+                let fileName = selectedUrl.lastPathComponent
+
+                let js = "window.onNativeFileOpened('\(base64)', '\(fileName)', '\(self.currentPickerMode)');"
+                webView.evaluateJavaScript(js, completionHandler: nil)
+            } catch {
+                print("Error reading \(selectedUrl): \(error)")
+            }
+        }
+
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
     }
 
     private func exportDFFFile(base64: String, fileName: String) {

@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 import UniformTypeIdentifiers
 
-class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPickerDelegate {
+class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPickerDelegate, WKNavigationDelegate, WKUIDelegate {
     private var webView: WKWebView!
 
     override var prefersStatusBarHidden: Bool {
@@ -30,16 +30,17 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         contentController.add(self, name: "exportDFF")
 
         config.userContentController = contentController
-        config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        config.setValue(true, forKey: "_allowUniversalAccessFromFileURLs")
+        config.preferences.javaScriptEnabled = true
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.translatesAutoresizingMaskIntoConstraints = false
-        webView.backgroundColor = .clear
-        webView.isOpaque = false
+        webView.backgroundColor = UIColor(red: 15/255.0, green: 17/255.0, blue: 23/255.0, alpha: 1.0)
+        webView.isOpaque = true
         webView.scrollView.bounces = false
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
 
         view.addSubview(webView)
 
@@ -52,21 +53,53 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
     }
 
     private func loadLocalApp() {
-        guard let bundlePath = Bundle.main.path(forResource: "www", ofType: nil) else {
-            // Fallback to bundle root if www is flat
-            if let htmlPath = Bundle.main.path(forResource: "index", ofType: "html") {
-                let htmlUrl = URL(fileURLWithPath: htmlPath)
-                webView.loadFileURL(htmlUrl, allowingReadAccessTo: htmlUrl.deletingLastPathComponent())
+        let bundleUrl = Bundle.main.bundleURL
+
+        let candidatePaths: [URL] = [
+            bundleUrl.appendingPathComponent("index.html"),
+            bundleUrl.appendingPathComponent("www").appendingPathComponent("index.html"),
+            Bundle.main.url(forResource: "index", withExtension: "html") as Any,
+            Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "www") as Any
+        ].compactMap { $0 as? URL }
+
+        for url in candidatePaths {
+            if FileManager.default.fileExists(atPath: url.path) {
+                print("Loading 3D Studio from: \(url.path)")
+                webView.loadFileURL(url, allowingReadAccessTo: bundleUrl)
+                return
             }
-            return
         }
 
-        let wwwUrl = URL(fileURLWithPath: bundlePath)
-        let indexUrl = wwwUrl.appendingPathComponent("index.html")
+        showErrorAlert(title: "Xatolik", message: "index.html topilmadi!\nBundle yo'li: \(bundleUrl.path)")
+    }
 
-        if FileManager.default.fileExists(atPath: indexUrl.path) {
-            webView.loadFileURL(indexUrl, allowingReadAccessTo: wwwUrl)
-        }
+    private func showErrorAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    // MARK: - WKNavigationDelegate
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        showErrorAlert(title: "Yuklash xatoligi", message: error.localizedDescription)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        showErrorAlert(title: "Yuklash xatoligi (Provisional)", message: error.localizedDescription)
+    }
+
+    // MARK: - WKUIDelegate
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = UIAlertController(title: "Diro 3D", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default, handler: { _ in completionHandler() }))
+        present(alert, animated: true)
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = UIAlertController(title: "Diro 3D", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Ha", style: .default, handler: { _ in completionHandler(true) }))
+        alert.addAction(UIAlertAction(title: "Yo'q", style: .cancel, handler: { _ in completionHandler(false) }))
+        present(alert, animated: true)
     }
 
     private var currentPickerMode: String = "open"

@@ -11,8 +11,8 @@ mkdir -p "$APP_DIR"
 echo "1. Compiling Swift code..."
 xcrun -sdk iphoneos swiftc \
     ZModelerApp/AppDelegate.swift \
-    ZModelerApp/SceneDelegate.swift \
     ZModelerApp/ViewController.swift \
+    -module-name ZModeler \
     -target arm64-apple-ios14.0 \
     -O \
     -framework UIKit \

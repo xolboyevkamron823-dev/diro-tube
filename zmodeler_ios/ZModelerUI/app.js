@@ -23,6 +23,9 @@ let selectedMaterialIndex = 0;
 let initialWheelPositions = {};
 let isWireframe = false;
 let showDummies = true;
+let isShaderMode = false;
+let isUVFlipped = false;
+let studioEnvMap = null;
 
 function init() {
     const container = document.getElementById('viewport-container');
@@ -156,6 +159,149 @@ function setupRaycaster() {
     }
 }
 
+// Procedural Studio / Sky Environment Map for GTA Glossy Reflections
+function createStudioEnvMap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+
+    // 1. Sky & Atmosphere gradient (Top half)
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, 256);
+    skyGrad.addColorStop(0, '#1e3a8a');
+    skyGrad.addColorStop(0.35, '#38bdf8');
+    skyGrad.addColorStop(0.85, '#bae6fd');
+    skyGrad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, 1024, 256);
+
+    // 2. High-intensity Sun / Key light reflection
+    const sunGrad = ctx.createRadialGradient(512, 90, 5, 512, 90, 240);
+    sunGrad.addColorStop(0, '#ffffff');
+    sunGrad.addColorStop(0.25, 'rgba(255, 250, 230, 0.95)');
+    sunGrad.addColorStop(0.6, 'rgba(255, 220, 150, 0.4)');
+    sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(0, 0, 1024, 256);
+
+    // 3. Ground & Asphalt gradient (Bottom half)
+    const groundGrad = ctx.createLinearGradient(0, 256, 0, 512);
+    groundGrad.addColorStop(0, '#0f172a');
+    groundGrad.addColorStop(0.2, '#1e293b');
+    groundGrad.addColorStop(0.6, '#090d16');
+    groundGrad.addColorStop(1, '#020617');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, 256, 1024, 256);
+
+    // 4. Softbox highlights for automotive showroom curvature lines
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.fillRect(120, 50, 160, 90);
+    ctx.fillRect(740, 50, 160, 90);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    return texture;
+}
+
+function toggleShaderMode() {
+    isShaderMode = !isShaderMode;
+    const btn = document.getElementById('btn-toggle-shader');
+    if (btn) {
+        btn.classList.toggle('active', isShaderMode);
+    }
+
+    if (!studioEnvMap) {
+        studioEnvMap = createStudioEnvMap();
+    }
+
+    if (isShaderMode) {
+        scene.environment = studioEnvMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.25;
+        showToast("✨ Shader: Yaltiroq rejim yoqildi (O'yindagi ENB/Glossy)");
+    } else {
+        scene.environment = null;
+        renderer.toneMapping = THREE.NoToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        showToast("Shader rejimi: Oddiy (Standart)");
+    }
+
+    updateAllMaterialsShader();
+}
+
+function updateAllMaterialsShader() {
+    if (!currentRootGroup) return;
+
+    currentRootGroup.traverse(obj => {
+        if (obj instanceof THREE.Mesh && !obj.name.includes("__dummy_")) {
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            mats.forEach(mat => {
+                if (mat instanceof THREE.MeshStandardMaterial) {
+                    const texName = (mat.userData?.dffMat?.textureName || "").toLowerCase();
+                    const partName = (obj.name || "").toLowerCase();
+                    const combined = texName + " " + partName;
+
+                    if (isShaderMode) {
+                        if (combined.includes("glass") || combined.includes("window") || combined.includes("windscreen")) {
+                            mat.transparent = true;
+                            mat.opacity = 0.55;
+                            mat.roughness = 0.05;
+                            mat.metalness = 0.9;
+                            mat.envMapIntensity = 2.5;
+                        } else if (combined.includes("wheel") || combined.includes("rim") || combined.includes("chrom") || combined.includes("exhaust")) {
+                            mat.roughness = 0.08;
+                            mat.metalness = 0.95;
+                            mat.envMapIntensity = 2.4;
+                        } else if (combined.includes("light") || combined.includes("lamp")) {
+                            mat.roughness = 0.15;
+                            mat.metalness = 0.3;
+                            mat.envMapIntensity = 1.6;
+                        } else {
+                            // Glossy car paint body (Kuzov)
+                            mat.roughness = 0.12;
+                            mat.metalness = 0.65;
+                            mat.envMapIntensity = 1.9;
+                        }
+                    } else {
+                        // Standard edit mode
+                        if (combined.includes("glass") || combined.includes("window")) {
+                            mat.transparent = true;
+                            mat.opacity = 0.65;
+                        }
+                        mat.roughness = 0.4;
+                        mat.metalness = 0.2;
+                        mat.envMapIntensity = 0.5;
+                    }
+                    mat.needsUpdate = true;
+                }
+            });
+        }
+    });
+}
+
+function toggleUVFlip() {
+    isUVFlipped = !isUVFlipped;
+    const btn = document.getElementById('btn-toggle-uv');
+    if (btn) {
+        btn.classList.toggle('active', isUVFlipped);
+    }
+
+    if (!currentRootGroup) return;
+
+    currentRootGroup.traverse(obj => {
+        if (obj instanceof THREE.Mesh && obj.geometry && obj.geometry.attributes.uv) {
+            const uvAttr = obj.geometry.attributes.uv;
+            const array = uvAttr.array;
+            for (let i = 1; i < array.length; i += 2) {
+                array[i] = 1.0 - array[i];
+            }
+            uvAttr.needsUpdate = true;
+        }
+    });
+
+    showToast(isUVFlipped ? "🔄 UV: Teskari qilindi (180°)" : "🔄 UV: Asl holatga keltirildi (Normal)");
+}
+
 // Build Three.js 3D Scene from DFFModel
 function buildThreeSceneFromDFF(dff) {
     if (currentRootGroup) {
@@ -251,7 +397,7 @@ function buildThreeSceneFromDFF(dff) {
             const uvArray = new Float32Array(uvSet.length * 2);
             for (let u = 0; u < uvSet.length; u++) {
                 uvArray[u * 2] = uvSet[u].u;
-                uvArray[u * 2 + 1] = 1.0 - uvSet[u].v; // Flip V for Three.js
+                uvArray[u * 2 + 1] = isUVFlipped ? (1.0 - uvSet[u].v) : uvSet[u].v;
             }
             bufferGeom.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
         }
@@ -361,6 +507,10 @@ function buildThreeSceneFromDFF(dff) {
 
     // Hide welcome overlay
     document.getElementById('welcome-overlay').classList.add('hidden');
+    if (isShaderMode) {
+        updateAllMaterialsShader();
+    }
+
     showToast(`DFF yuklandi: ${dff.frames.length} ta qism, ${dff.geometries.length} ta geometriya`);
 }
 
@@ -494,6 +644,9 @@ function applyTextureMapToScene() {
     });
 
     if (appliedCount > 0) {
+        if (isShaderMode) {
+            updateAllMaterialsShader();
+        }
         showToast(`${appliedCount} ta qismga teksturalar ulandi!`);
     }
 }
@@ -506,6 +659,7 @@ function processTXDData(arrayBuffer, fileName) {
             const t = parsed[key];
             const rgba = TXDParser.decodeToRGBA(t);
             const dataTex = new THREE.DataTexture(rgba, t.width, t.height, THREE.RGBAFormat);
+            dataTex.flipY = false;
             dataTex.wrapS = THREE.RepeatWrapping;
             dataTex.wrapT = THREE.RepeatWrapping;
             dataTex.needsUpdate = true;
@@ -523,6 +677,7 @@ function processImageFile(file) {
     reader.onload = (e) => {
         const texLoader = new THREE.TextureLoader();
         texLoader.load(e.target.result, (texture) => {
+            texture.flipY = false;
             texture.wrapS = THREE.RepeatWrapping;
             texture.wrapT = THREE.RepeatWrapping;
             const nameKey = file.name.replace(/\.[^/.]+$/, "").toLowerCase();
@@ -685,6 +840,9 @@ function setupUIEvents() {
             });
         }
     });
+
+    document.getElementById('btn-toggle-shader').addEventListener('click', toggleShaderMode);
+    document.getElementById('btn-toggle-uv').addEventListener('click', toggleUVFlip);
 
     document.getElementById('btn-reset-cam').addEventListener('click', () => {
         if (currentRootGroup) {
@@ -908,6 +1066,7 @@ function setupMaterialEditor() {
             const imgUrl = event.target.result;
             const texLoader = new THREE.TextureLoader();
             texLoader.load(imgUrl, (texture) => {
+                texture.flipY = false;
                 texture.wrapS = THREE.RepeatWrapping;
                 texture.wrapT = THREE.RepeatWrapping;
 

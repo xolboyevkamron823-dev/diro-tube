@@ -5,35 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Diro 3D Studio - ZModeler iOS</title>
     <link rel="stylesheet" href="app.css">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 </head>
 <body>
 
     <!-- 3D Viewport -->
     <div id="viewport-container"></div>
 
-    <!-- Hidden native file input -->
-    <input type="file" id="dff-file-input" accept=".dff" style="display: none;">
+    <!-- Hidden native file inputs -->
+    <input type="file" id="dff-file-input" accept=".dff,.txd,.png,.jpg,.jpeg" multiple style="display: none;">
+    <input type="file" id="txd-file-input" accept=".txd,.png,.jpg,.jpeg" multiple style="display: none;">
+    <input type="file" id="dff-merge-input" accept=".dff" style="display: none;">
+    <input type="file" id="tex-file-input" accept="image/png,image/jpeg" style="display: none;">
 
     <!-- Top Navigation Bar -->
     <header class="top-nav">
         <div class="brand">
-            <img src="logo.png" alt="Diro Logo" style="width: 28px; height: 28px; border-radius: 6px;">
+            <img src="logo.png" alt="Diro Logo" style="width: 28px; height: 28px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
             <span class="brand-badge">DIRO 3D</span>
-            <span>ZModeler iOS</span>
+            <span style="display: none; @media(min-width: 480px){display: inline;}">ZModeler iOS</span>
         </div>
         <div class="nav-actions">
-            <button class="btn btn-secondary" id="btn-open-file">📂 Ochish</button>
-            <button class="btn btn-success" id="btn-export-dff">💾 Eksport</button>
-            <button class="btn btn-secondary btn-icon" id="btn-toggle-hierarchy" title="Ierarxiya">📋</button>
-            <button class="btn btn-secondary btn-icon" id="btn-toggle-inspector" title="Sozlamalar">⚙️</button>
+            <button class="btn btn-secondary" id="btn-open-file" title="Yangi DFF yoki TXD model ochish">📂 Ochish</button>
+            <button class="btn btn-secondary" id="btn-open-txd" title="TXD fayl yoki rasmlarni ochish va modelga kiygizish">🖼️ TXD</button>
+            <button class="btn btn-secondary" id="btn-merge-file" title="Boshqa DFF detalini qo'shish">➕ Qo'shish</button>
+            <button class="btn btn-success" id="btn-export-dff" title="O'zgartirilgan modelni DFF qilib saqlash">💾 Eksport</button>
+            <button class="btn btn-secondary btn-icon" id="btn-toggle-hierarchy" title="Ierarxiya daraxti">📋</button>
+            <button class="btn btn-secondary btn-icon" id="btn-toggle-inspector" title="Sozlamalar va Tyuning">⚙️</button>
         </div>
     </header>
 
     <!-- Viewport Floating Toolbar -->
     <div class="view-toolbar">
         <button class="tool-btn" id="btn-toggle-wireframe" title="To'rli rejim (Wireframe)">🕸️</button>
-        <button class="tool-btn active" id="btn-toggle-dummies" title="Dummylarni ko'rsatish">📍</button>
-        <button class="tool-btn" id="btn-reset-cam" title="Kamerani to'g'rilash">🎯</button>
+        <button class="tool-btn active" id="btn-toggle-dummies" title="Dummylarni ko'rsatish/yashirish">📍</button>
+        <button class="tool-btn" id="btn-reset-cam" title="Kamerani avtomobilga to'g'rilash">🎯</button>
     </div>
 
     <!-- Bottom Gizmo Mode Selector -->
@@ -43,7 +50,7 @@
         <button class="gizmo-btn" data-mode="scale">🔍 O'lcham</button>
     </div>
 
-    <!-- Left Drawer: Hierarchy (Daraxt / Qismlar) -->
+    <!-- Left Drawer: Hierarchy (Ierarxiya & Qismlar tartibi) -->
     <div class="drawer drawer-left collapsed" id="drawer-hierarchy">
         <div class="drawer-header">
             <div class="drawer-title">📋 Mashina Qismlari</div>
@@ -51,16 +58,28 @@
         </div>
         <div class="drawer-body">
             <input type="text" class="search-box" id="hierarchy-search" placeholder="Qismni qidirish (wheel, light, door...)">
-            <div style="display: flex; gap: 8px;">
-                <button class="btn btn-secondary" style="flex: 1; font-size: 12px; height: 32px;" id="btn-add-dummy">➕ Dummy qo'shish</button>
+            
+            <!-- Hierarchy Actions Toolbar -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                <button class="btn btn-secondary" style="font-size: 11px; height: 32px;" id="btn-hier-add-dff">➕ DFF Qo'shish</button>
+                <button class="btn btn-secondary" style="font-size: 11px; height: 32px;" id="btn-add-dummy">📍 Dummy qo'shish</button>
             </div>
+            
+            <div style="display: flex; gap: 4px; justify-content: space-between;">
+                <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px;" id="btn-move-up" title="Tanlangan qismni yuqoriga surish">⬆️ Tepa</button>
+                <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px;" id="btn-move-down" title="Tanlangan qismni pastga surish">⬇️ Past</button>
+                <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px;" id="btn-reparent" title="Boshqa detal ichiga biriktirish">📂 Biriktirish</button>
+                <button class="btn btn-secondary" style="font-size: 11px; height: 28px; color: var(--accent-red);" id="btn-delete-node" title="Tanlangan qismni o'chirish">🗑️</button>
+            </div>
+
+            <!-- Drag & Drop Node List -->
             <div class="node-list" id="hierarchy-list">
                 <!-- Populated dynamically -->
             </div>
         </div>
     </div>
 
-    <!-- Right Drawer: Inspector & Quick Tuning -->
+    <!-- Right Drawer: Inspector, Tuning & Material Editor -->
     <div class="drawer drawer-right collapsed" id="drawer-inspector">
         <div class="drawer-header">
             <div class="drawer-title" id="inspector-title">⚙️ Xususiyatlar</div>
@@ -71,17 +90,23 @@
             <div class="tab-row">
                 <button class="tab-btn active" data-tab="coords">Koordinata</button>
                 <button class="tab-btn" data-tab="tuning">🚀 Tyuning</button>
+                <button class="tab-btn" data-tab="materials">🎨 Material</button>
             </div>
 
-            <!-- Tab 1: Coordinates -->
+            <!-- Tab 1: Coordinates & Rename -->
             <div id="tab-coords" class="tab-content" style="display: flex; flex-direction: column; gap: 12px;">
                 <div class="card">
-                    <div class="card-title">Qism nomi</div>
-                    <input type="text" class="search-box" id="input-node-name" style="height: 32px;">
+                    <div class="card-title">
+                        <span>Qism nomi (Rename)</span>
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <input type="text" class="search-box" id="input-node-name" style="height: 34px; flex: 1;" placeholder="chassis, wheel_rf...">
+                        <button class="btn btn-primary" id="btn-apply-rename" style="height: 34px; padding: 0 10px; font-size: 12px;">Saqlash</button>
+                    </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">Pozitsiya (Joylashuv)</div>
+                    <div class="card-title">Pozitsiya (X, Y, Z)</div>
                     <div class="coord-grid">
                         <span class="coord-label label-x">X</span>
                         <input type="number" step="0.01" class="coord-input" id="pos-x" value="0.000">
@@ -103,7 +128,7 @@
                 </div>
 
                 <div class="card">
-                    <div class="card-title">Aylanish (Burchak)</div>
+                    <div class="card-title">Aylanish (Burchak °)</div>
                     <div class="coord-grid">
                         <span class="coord-label label-x">X</span>
                         <input type="number" step="1" class="coord-input" id="rot-x" value="0.0">
@@ -157,7 +182,7 @@
                             <span class="slider-val" id="val-posadka">0 sm</span>
                         </div>
                         <input type="range" id="slider-posadka" min="-30" max="30" value="0" step="1">
-                        <span style="font-size: 11px; color: var(--text-muted);">G'ildirak dummylari avtomatik moslashadi</span>
+                        <span style="font-size: 11px; color: var(--text-muted);">G'ildirak dummylari avtomatik hisoblanadi</span>
                     </div>
                 </div>
 
@@ -182,7 +207,77 @@
                         <input type="range" id="slider-scale" min="0.6" max="1.6" value="1.0" step="0.05">
                     </div>
                 </div>
+
+                <div class="card">
+                    <div class="card-title">↔️ G'ildirak Chiqarish (Track Width)</div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Kenglik:</span>
+                            <span class="slider-val" id="val-track">0 sm</span>
+                        </div>
+                        <input type="range" id="slider-track" min="-20" max="20" value="0" step="1">
+                    </div>
+                </div>
             </div>
+
+            <!-- Tab 3: Material Editor (Full) -->
+            <div id="tab-materials" class="tab-content" style="display: none; flex-direction: column; gap: 12px;">
+                <div class="card">
+                    <div class="card-title">Material Tanlash</div>
+                    <select id="mat-select" class="search-box" style="height: 36px; padding: 0 8px; font-weight: 600;">
+                        <option value="0">Material mavjud emas</option>
+                    </select>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Asosiy Rang (Diffuse / RGBA)</div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="color" id="mat-color-picker" value="#ffffff" style="width: 44px; height: 38px; border: none; border-radius: 8px; cursor: pointer; background: transparent;">
+                        <input type="text" class="search-box" id="mat-color-hex" value="#FFFFFF" style="height: 34px; flex: 1; text-transform: uppercase;">
+                    </div>
+                    <div class="slider-group" style="margin-top: 6px;">
+                        <div class="slider-header">
+                            <span>Shaffoflik (Alpha):</span>
+                            <span class="slider-val" id="val-mat-alpha">100%</span>
+                        </div>
+                        <input type="range" id="slider-mat-alpha" min="0" max="100" value="100" step="1">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Tekstura (Texture Name)</div>
+                    <div style="display: flex; gap: 6px;">
+                        <input type="text" class="search-box" id="input-mat-texname" style="height: 34px; flex: 1;" placeholder="vehiclegrunge256">
+                        <button class="btn btn-secondary" id="btn-pick-tex-img" title="Tekstura rasmini (PNG/JPG) ko'rish uchun yuklash">🖼️ Rasm</button>
+                    </div>
+                    <div id="tex-preview-box" style="display: none; align-items: center; gap: 10px; margin-top: 6px; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                        <img id="tex-preview-img" src="" style="width: 44px; height: 44px; object-fit: contain; border-radius: 4px; background: #222;">
+                        <div style="flex: 1; overflow: hidden;">
+                            <div id="tex-preview-name" style="font-size: 12px; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">custom.png</div>
+                            <span style="font-size: 10px; color: var(--accent-green);">Modelga ulandi</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Yorug'lik Xususiyatlari</div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Ambient (Atrof):</span>
+                            <span class="slider-val" id="val-mat-ambient">1.00</span>
+                        </div>
+                        <input type="range" id="slider-mat-ambient" min="0" max="2" value="1.0" step="0.05">
+                    </div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Specular (Yaltirash):</span>
+                            <span class="slider-val" id="val-mat-specular">1.00</span>
+                        </div>
+                        <input type="range" id="slider-mat-specular" min="0" max="2" value="1.0" step="0.05">
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -193,11 +288,13 @@
             <div class="welcome-title">Diro 3D Studio</div>
             <div class="welcome-desc">
                 iOS uchun ZModeler / SA File Editor muqobili.<br>
-                GTA San Andreas <code>.dff</code> 3D modellarini oching, qismlarini tahrirlang, posadka bering va saqlang!
+                GTA San Andreas <code>.dff</code> modellarini oching, boshqa detal qo'shing, nomlarini o'zgartiring, posadka bering va saqlang!
             </div>
-            <button class="btn btn-primary" style="width: 100%; height: 44px; font-size: 15px;" onclick="document.getElementById('btn-open-file').click();">
-                📂 DFF Modelni Ochish
-            </button>
+            <div style="display: flex; flex-direction: column; width: 100%; gap: 10px;">
+                <button class="btn btn-primary" style="width: 100%; height: 44px; font-size: 15px;" onclick="document.getElementById('btn-open-file').click();">
+                    📂 DFF Modelni Ochish
+                </button>
+            </div>
         </div>
     </div>
 

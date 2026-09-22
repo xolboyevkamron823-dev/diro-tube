@@ -1715,70 +1715,82 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// Setup & Dynamic Loading
+// Direct Game Window Attachment with Periodic Repositioning & Anti-Ghosting
 // -----------------------------------------------------------------------------
-static void setup_diro_ui(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (g_diroWindow && g_floatingButton && g_floatingButton.superview) {
-            [g_diroWindow.rootViewController.view bringSubviewToFront:g_floatingButton];
-            if (g_menuModal && !g_menuModal.hidden) {
-                [g_diroWindow.rootViewController.view bringSubviewToFront:g_menuModal];
-            }
-            return;
-        }
+static void check_and_reposition(void) {
+    UIApplication *app = [UIApplication sharedApplication];
+    if (!app) return;
 
-        NSLog(@"[DIRO] Launching Diro Mod Menu overlay...");
-        UIWindow *window = nil;
-        if (@available(iOS 13.0, *)) {
-            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-                    window = [[DiroWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-                    break;
-                }
+    UIWindow *w = app.keyWindow;
+    if (!w && app.windows.count > 0) {
+        for (UIWindow *win in app.windows) {
+            NSString *cls = NSStringFromClass([win class]);
+            if (![cls containsString:@"ButtonWindow"] && 
+                ![cls containsString:@"IGWindow"] && 
+                ![cls containsString:@"IGFloating"] && 
+                ![cls containsString:@"iOSGods"] &&
+                ![cls containsString:@"UITextEffectsWindow"]) {
+                w = win;
+                break;
             }
         }
-        if (!window) {
-            window = [[DiroWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-        }
-        g_diroWindow = (DiroWindow *)window;
+        if (!w) w = app.windows.firstObject;
+    }
+    if (!w) return;
 
-        DiroRootViewController *vc = [[DiroRootViewController alloc] init];
-        window.rootViewController = vc;
-        window.hidden = NO;
+    CGRect b = w.bounds;
+    if (b.size.width < 50 || b.size.height < 50) return;
 
-        CGSize sz = [UIScreen mainScreen].bounds.size;
+    // Attach to w if not yet attached or if detached
+    if (!g_floatingButton || g_floatingButton.superview != w) {
+        if (g_floatingButton) [g_floatingButton removeFromSuperview];
+        if (g_menuModal) [g_menuModal removeFromSuperview];
+
         CGFloat btnSize = 52.0;
         CGFloat initialX = 14.0;
-        CGFloat initialY = (sz.height - btnSize) / 2.0;
+        CGFloat initialY = (b.size.height - btnSize) / 2.0;
+
         if (!g_floatingButton) {
             g_floatingButton = [[DiroFloatingButton alloc] initWithFrame:CGRectMake(initialX, initialY, btnSize, btnSize)];
         }
-        [vc.view addSubview:g_floatingButton];
+        [w addSubview:g_floatingButton];
+        [w bringSubviewToFront:g_floatingButton];
 
-        CGFloat mw = MIN(410.0, sz.width - 24.0);
-        CGFloat mh = MIN(310.0, sz.height - 24.0);
-        CGFloat mx = (sz.width - mw) / 2.0;
-        CGFloat my = (sz.height - mh) / 2.0;
+        CGFloat mw = MIN(390.0, b.size.width - 20.0);
+        CGFloat mh = MIN(300.0, b.size.height - 20.0);
+        CGFloat mx = (b.size.width - mw) / 2.0;
+        CGFloat my = (b.size.height - mh) / 2.0;
+
         if (!g_menuModal) {
             g_menuModal = [[DiroMenuModal alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
             g_menuModal.hidden = YES;
             g_menuModal.alpha = 0.0;
         }
-        [vc.view addSubview:g_menuModal];
+        [w addSubview:g_menuModal];
+        [w bringSubviewToFront:g_menuModal];
 
-        // Hide legacy cheat windows if present
-        for (UIWindow *w in [UIApplication sharedApplication].windows) {
-            if (w != g_diroWindow) {
-                NSString *cls = NSStringFromClass([w class]);
-                if ([cls containsString:@"ButtonWindow"] || [cls containsString:@"IGWindow"] || [cls containsString:@"IGFloating"]) {
-                    w.hidden = YES;
-                    w.alpha = 0.0;
-                }
+        NSLog(@"[DIRO] Diro UI attached directly to keyWindow: %@", w);
+    } else {
+        [w bringSubviewToFront:g_floatingButton];
+        if (g_menuModal && !g_menuModal.hidden) {
+            [w bringSubviewToFront:g_menuModal];
+        }
+    }
+
+    // Hide old / legacy cheat windows (iOSGods) completely so only our Diro menu is visible!
+    for (UIWindow *win in app.windows) {
+        if (win != w) {
+            NSString *cls = NSStringFromClass([win class]);
+            if ([cls containsString:@"ButtonWindow"] || 
+                [cls containsString:@"IGWindow"] || 
+                [cls containsString:@"IGFloating"] || 
+                [cls containsString:@"iOSGods"]) {
+                win.hidden = YES;
+                win.alpha = 0.0;
+                win.userInteractionEnabled = NO;
             }
         }
-
-        NSLog(@"[DIRO] Diro Mod Menu is 100%% active and visible on screen!");
-    });
+    }
 }
 
 // Constructor: Executes automatically when GTASA.dylib is loaded by dyld
@@ -1794,24 +1806,11 @@ static void diro_entry(void) {
     }
     NSLog(@"[DIRO] Loaded GTASA_Original.dylib handle: %p", h);
 
-    // 2. Setup UI when application finishes launching
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
-                                                      object:nil
-                                                       queue:[NSOperationQueue mainQueue]
-                                                   usingBlock:^(NSNotification * _Nonnull note) {
-        setup_diro_ui();
-    }];
-
-    // Also fallback dispatch after 1.5, 3.0, and 5.0 seconds
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        setup_diro_ui();
+    // 2. Start repeating timer to attach and keep Diro menu frontmost
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), (uint64_t)(1.0 * NSEC_PER_SEC), (uint64_t)(0.1 * NSEC_PER_SEC));
+    dispatch_source_set_event_handler(timer, ^{
+        check_and_reposition();
     });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        setup_diro_ui();
-    });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        setup_diro_ui();
-    });
+    dispatch_resume(timer);
 }

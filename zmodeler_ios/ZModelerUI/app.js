@@ -147,6 +147,13 @@ function setupRaycaster() {
             }
         }
     }
+
+    // Hide initial splash loader
+    const loader = document.getElementById('app-loading-state');
+    if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 350);
+    }
 }
 
 // Build Three.js 3D Scene from DFFModel

@@ -49,8 +49,15 @@ static uintptr_t get_player_ped(void) {
     return 0;
 }
 
+static uintptr_t g_lastSpawnedVehicle = 0;
+
 // CVehicle* FindPlayerVehicle(int playerIndex = -1, bool bIncludeRemote = false) at 0x190f1c
 static uintptr_t get_player_vehicle(void) {
+    uintptr_t ped = get_player_ped();
+    if (ped) {
+        uintptr_t v = *(uintptr_t *)(ped + 0x708);
+        if (v) return v;
+    }
     intptr_t slide = get_gtasa_slide();
     uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x190f1c;
     uintptr_t (*fn)(int, bool) = (uintptr_t(*)(int, bool))addr;
@@ -60,32 +67,72 @@ static uintptr_t get_player_vehicle(void) {
     return 0;
 }
 
+static uintptr_t get_current_or_last_vehicle(void) {
+    uintptr_t v = get_player_vehicle();
+    if (v) return v;
+    if (g_lastSpawnedVehicle) return g_lastSpawnedVehicle;
+    return 0;
+}
+
 // CCheat::VehicleCheat(int modelId) at 0xaf4d4
 static void trigger_vehicle_cheat(int modelId) {
     intptr_t slide = get_gtasa_slide();
     uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0xaf4d4;
-    void (*fn)(int) = (void(*)(int))addr;
+    uintptr_t (*fn)(int) = (uintptr_t(*)(int))addr;
     if (fn) {
-        fn(modelId);
+        uintptr_t veh = fn(modelId);
+        if (veh) {
+            g_lastSpawnedVehicle = veh;
+        }
     }
 }
 
-// Vehicle Color Changer: Sets primary and secondary colors at offsets 0x17d, 0x17e, 0x17f, 0x180 and calls CVehicle::SetColour at 0x26b140
+// Vehicle Color Changer: Sets primary and secondary colors at offsets 0x574, 0x575, 0x576, 0x577, global palette at 0x7e3532, and repaints clump materials via 0x231908
 static BOOL change_vehicle_color(uint8_t primary, uint8_t secondary) {
-    uintptr_t veh = get_player_vehicle();
+    uintptr_t veh = get_current_or_last_vehicle();
     if (!veh) return NO;
 
+    // 1. Write the 4 vehicle color slots directly at 0x574, 0x575, 0x576, 0x577
+    *(uint8_t *)(veh + 0x574) = primary;
+    *(uint8_t *)(veh + 0x575) = secondary;
+    *(uint8_t *)(veh + 0x576) = primary;
+    *(uint8_t *)(veh + 0x577) = secondary;
+
+    // Direct backup at legacy offsets 0x17d, 0x17e
     *(uint8_t *)(veh + 0x17d) = primary;
     *(uint8_t *)(veh + 0x17e) = secondary;
-    *(uint8_t *)(veh + 0x17f) = primary;
-    *(uint8_t *)(veh + 0x180) = secondary;
 
     intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x26b140;
-    void (*fn)(uintptr_t, uint8_t, uint8_t) = (void(*)(uintptr_t, uint8_t, uint8_t))addr;
-    if (fn) {
-        fn(veh, primary, secondary);
+
+    // 2. Set global palette indices at 0x7e3532 - 0x7e3535
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3532) = primary;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3533) = secondary;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3534) = primary;
+    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3535) = secondary;
+
+    // 3. If modelInfo is available, update modelInfo colors at 0x65a - 0x65d
+    int16_t modelIndex = *(int16_t *)(veh + 0x32);
+    if (modelIndex >= 400 && modelIndex <= 611) {
+        uintptr_t modelArray = (uintptr_t)slide + 0x100000000ULL + 0x7bc170;
+        uintptr_t modelInfo = *(uintptr_t *)(modelArray + (uintptr_t)modelIndex * 8);
+        if (modelInfo) {
+            *(uint8_t *)(modelInfo + 0x65a) = primary;
+            *(uint8_t *)(modelInfo + 0x65b) = secondary;
+            *(uint8_t *)(modelInfo + 0x65c) = primary;
+            *(uint8_t *)(modelInfo + 0x65d) = secondary;
+        }
     }
+
+    // 4. Repaint 3D model clump materials immediately via 0x231908
+    uintptr_t clump = *(uintptr_t *)(veh + 0x20);
+    if (clump) {
+        uintptr_t repaintAddr = (uintptr_t)slide + 0x100000000ULL + 0x231908;
+        void (*repaintFn)(uintptr_t) = (void(*)(uintptr_t))repaintAddr;
+        if (repaintFn) {
+            repaintFn(clump);
+        }
+    }
+
     return YES;
 }
 
@@ -118,18 +165,19 @@ static void add_game_hours(int deltaHours) {
     set_game_time((uint8_t)newH, *mPtr);
 }
 
-// HESOYAM: Native cheat 0xad598 + direct memory write for $250k, full health, armor, and car repair
+// HESOYAM: Direct memory write for $250k, full health, armor, and car repair (ZERO CRASHES)
 static void trigger_hesoyam(void) {
     intptr_t slide = get_gtasa_slide();
 
-    // 1. Call native cheat function at 0xad598
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0xad598;
-    void (*cheatFn)(void) = (void(*)(void))addr;
-    if (cheatFn) {
-        cheatFn();
-    }
+    // 1. Player Info Money (+$250,000) at CWorld::Players[playerIndex].m_nMoney
+    uint8_t *pIdxPtr = (uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x741e18);
+    uint8_t pIndex = pIdxPtr ? *pIdxPtr : 0;
+    if (pIndex > 1) pIndex = 0;
+    uintptr_t playersBase = (uintptr_t)slide + 0x100000000ULL + 0x741a68;
+    uintptr_t playerInfo = playersBase + (uintptr_t)pIndex * 0x1d8;
+    *(int *)(playerInfo + 0xf0) += 250000;
 
-    // 2. Direct memory write for 100% guarantee
+    // 2. Direct memory write for Health & Armor (Ped)
     uintptr_t ped = get_player_ped();
     if (ped) {
         *(float *)(ped + 0x6ac) = 200.0f; // Health
@@ -137,15 +185,11 @@ static void trigger_hesoyam(void) {
         *(float *)(ped + 0x6c4) = 200.0f; // Max Health
     }
 
-    // 3. Repair vehicle if player is driving
-    uintptr_t veh = get_player_vehicle();
+    // 3. Repair vehicle if player is driving or spawned
+    uintptr_t veh = get_current_or_last_vehicle();
     if (veh) {
-        *(float *)(veh + 0x634) = 1000.0f;
+        *(float *)(veh + 0x634) = 1000.0f; // Full Vehicle HP
     }
-
-    // 4. Player Money +$250,000 at CPlayerInfo (0x741a68 + 0xf0)
-    uintptr_t moneyPtr = (uintptr_t)slide + 0x100000000ULL + 0x741a68 + 0xf0;
-    *(int *)moneyPtr += 250000;
 }
 
 // God Mode (Cheksiz Jon & O'lmaslik): Bitfield 0xFF at 0x42 + GCD timer keeping health/armor pegged at max
@@ -172,7 +216,7 @@ static void set_god_mode(BOOL enable) {
                         *(float *)(p + 0x6ac) = 200.0f;
                         *(float *)(p + 0x6b4) = 150.0f;
                     }
-                    uintptr_t v = get_player_vehicle();
+                    uintptr_t v = get_current_or_last_vehicle();
                     if (v) {
                         *(uint8_t *)(v + 0x42) = 0xFF;
                         *(float *)(v + 0x634) = 1000.0f;
@@ -190,7 +234,7 @@ static void set_god_mode(BOOL enable) {
         if (ped) {
             *(uint8_t *)(ped + 0x42) = 0x00;
         }
-        uintptr_t veh = get_player_vehicle();
+        uintptr_t veh = get_current_or_last_vehicle();
         if (veh) {
             *(uint8_t *)(veh + 0x42) = 0x00;
         }
@@ -1524,7 +1568,7 @@ static NSString *get_vehicle_name(int modelId) {
     if (ok) {
         [self showToast:[NSString stringWithFormat:@"✅ Mashina rangi o'zgartirildi! (ID: %d)", cid]];
     } else {
-        [self showToast:@"⚠️ Avval mashinaga o'tiring!"];
+        [self showToast:@"⚠️ Avval mashinaga o'tiring yoki mashina chiqaring!"];
     }
 }
 
@@ -1547,7 +1591,7 @@ static NSString *get_vehicle_name(int modelId) {
     if (ok) {
         [self showToast:[NSString stringWithFormat:@"✅ Mashina rangi o'zgartirildi! (ID: %d)", cid]];
     } else {
-        [self showToast:@"⚠️ Avval mashinaga o'tiring!"];
+        [self showToast:@"⚠️ Avval mashinaga o'tiring yoki mashina chiqaring!"];
     }
 }
 

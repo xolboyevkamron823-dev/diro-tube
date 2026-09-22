@@ -3,6 +3,8 @@
 #import <mach-o/dyld.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
+#import <QuartzCore/QuartzCore.h>
+#import <math.h>
 
 // Forward full interfaces
 @interface DiroFloatingButton : UIView
@@ -20,9 +22,11 @@
 @interface DiroRootViewController : UIViewController
 @end
 
+@class DiroDroneOverlayView;
 static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
+static DiroDroneOverlayView *g_droneOverlay = nil;
 
 static void trigger_native_cheat(uintptr_t offset);
 
@@ -217,6 +221,96 @@ static BOOL change_vehicle_color(uint8_t primary, uint8_t secondary) {
     *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x7e3535) = secondary;
 
     return YES;
+}
+
+// -----------------------------------------------------------------------------
+// Drone & Camera Engine Functions
+// -----------------------------------------------------------------------------
+static uintptr_t get_the_camera(void) {
+    intptr_t slide = get_gtasa_slide();
+    return (uintptr_t)slide + 0x100000000ULL + 0x72cf08;
+}
+
+static void camera_take_control(int16_t mode, int16_t switchType) {
+    uintptr_t cam = get_the_camera();
+    if (!cam) return;
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x1346f4;
+    void (*fn)(uintptr_t, uintptr_t, int16_t, int16_t, int32_t) =
+        (void(*)(uintptr_t, uintptr_t, int16_t, int16_t, int32_t))addr;
+    if (fn) {
+        fn(cam, 0, mode, switchType, 1);
+    }
+}
+
+static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
+    uintptr_t cam = get_the_camera();
+    if (!cam) return;
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x133618;
+    void (*fn)(uintptr_t, const float *, const float *) =
+        (void(*)(uintptr_t, const float *, const float *))addr;
+    if (fn) {
+        fn(cam, pos, target);
+    }
+
+    // Keep world streaming center synchronized with drone position
+    *(float *)(cam + 0x9a0) = pos[0];
+    *(float *)(cam + 0x9a4) = pos[1];
+    *(float *)(cam + 0x9a8) = pos[2];
+}
+
+static void camera_set_fov(float fov) {
+    uintptr_t cam = get_the_camera();
+    if (!cam) return;
+    uint8_t activeIdx = *(uint8_t *)(cam + 0x5f);
+    uintptr_t activeCam = cam + 0x178 + (uintptr_t)activeIdx * 0x228;
+    *(float *)(activeCam + 0x8c) = fov;
+}
+
+static void camera_restore(void) {
+    uintptr_t cam = get_the_camera();
+    if (!cam) return;
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x134e68;
+    void (*fn)(uintptr_t) = (void(*)(uintptr_t))addr;
+    if (fn) {
+        fn(cam);
+    }
+}
+
+static void set_game_frozen(BOOL freeze) {
+    intptr_t slide = get_gtasa_slide();
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x741a30;
+    if (freeze) {
+        *(float *)addr = 0.00001f;
+    } else {
+        *(float *)addr = 1.0f;
+    }
+}
+
+static void teleport_player_to_coords(float x, float y, float z) {
+    uintptr_t ped = get_player_ped();
+    if (!ped) return;
+    uintptr_t target = ped;
+    uintptr_t veh = *(uintptr_t *)(ped + 0x708);
+    if (veh) {
+        target = veh;
+    }
+
+    uintptr_t m = *(uintptr_t *)(target + 0x18);
+    if (m) {
+        *(float *)(m + 0x30) = x;
+        *(float *)(m + 0x34) = y;
+        *(float *)(m + 0x38) = z;
+    }
+    *(float *)(target + 0x8) = x;
+    *(float *)(target + 0xc) = y;
+    *(float *)(target + 0x10) = z;
+
+    *(float *)(target + 0x44) = 0.0f;
+    *(float *)(target + 0x48) = 0.0f;
+    *(float *)(target + 0x4c) = 0.0f;
 }
 
 // CClock::SetGameClock(uint8_t hours, uint8_t minutes, uint8_t day) at 0x13bc8c
@@ -738,7 +832,694 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// DiroMenuModal: Full Modern Cheat Hub with 5 Categories
+// DiroVirtualJoystickView: Smooth Glowing Joystick Pad
+// -----------------------------------------------------------------------------
+@interface DiroVirtualJoystickView : UIView
+@property (nonatomic, assign) CGFloat stickX; // -1.0 to 1.0
+@property (nonatomic, assign) CGFloat stickY; // -1.0 to 1.0
+@property (nonatomic, strong) UIView *baseView;
+@property (nonatomic, strong) UIView *knobView;
+@end
+
+@implementation DiroVirtualJoystickView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.multipleTouchEnabled = NO;
+
+        CGFloat baseSize = frame.size.width;
+        self.baseView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, baseSize, baseSize)];
+        self.baseView.backgroundColor = [UIColor colorWithRed:0.06 green:0.06 blue:0.09 alpha:0.65];
+        self.baseView.layer.cornerRadius = baseSize / 2.0;
+        self.baseView.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.45].CGColor;
+        self.baseView.layer.borderWidth = 1.8;
+        self.baseView.userInteractionEnabled = NO;
+        [self addSubview:self.baseView];
+
+        // Center target dot
+        UIView *centerDot = [[UIView alloc] initWithFrame:CGRectMake((baseSize - 8) / 2.0, (baseSize - 8) / 2.0, 8, 8)];
+        centerDot.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.5];
+        centerDot.layer.cornerRadius = 4;
+        centerDot.userInteractionEnabled = NO;
+        [self.baseView addSubview:centerDot];
+
+        CGFloat knobSize = 46.0;
+        self.knobView = [[UIView alloc] initWithFrame:CGRectMake((baseSize - knobSize) / 2.0, (baseSize - knobSize) / 2.0, knobSize, knobSize)];
+        self.knobView.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:0.90];
+        self.knobView.layer.cornerRadius = knobSize / 2.0;
+        self.knobView.layer.borderColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.95].CGColor;
+        self.knobView.layer.borderWidth = 2.0;
+        self.knobView.userInteractionEnabled = NO;
+
+        UILabel *knobIcon = [[UILabel alloc] initWithFrame:self.knobView.bounds];
+        knobIcon.text = @"🕹️";
+        knobIcon.textAlignment = NSTextAlignmentCenter;
+        knobIcon.font = [UIFont systemFontOfSize:15];
+        knobIcon.userInteractionEnabled = NO;
+        [self.knobView addSubview:knobIcon];
+
+        [self addSubview:self.knobView];
+    }
+    return self;
+}
+
+- (void)updateKnobForPoint:(CGPoint)pt {
+    CGFloat centerX = self.bounds.size.width / 2.0;
+    CGFloat centerY = self.bounds.size.height / 2.0;
+    CGFloat maxRadius = (self.bounds.size.width - 46.0) / 2.0;
+
+    CGFloat dx = pt.x - centerX;
+    CGFloat dy = pt.y - centerY;
+    CGFloat dist = sqrtf(dx * dx + dy * dy);
+
+    if (dist > maxRadius && dist > 0.001f) {
+        dx = (dx / dist) * maxRadius;
+        dy = (dy / dist) * maxRadius;
+    }
+
+    self.knobView.center = CGPointMake(centerX + dx, centerY + dy);
+    self.stickX = dx / maxRadius;
+    self.stickY = -dy / maxRadius; // Up is forward
+}
+
+- (void)resetKnob {
+    CGFloat centerX = self.bounds.size.width / 2.0;
+    CGFloat centerY = self.bounds.size.height / 2.0;
+    [UIView animateWithDuration:0.2 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0.5 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        self.knobView.center = CGPointMake(centerX, centerY);
+    } completion:nil];
+    self.stickX = 0.0f;
+    self.stickY = 0.0f;
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *t = [touches anyObject];
+    CGPoint pt = [t locationInView:self];
+    [self updateKnobForPoint:pt];
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    UITouch *t = [touches anyObject];
+    CGPoint pt = [t locationInView:self];
+    [self updateKnobForPoint:pt];
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self resetKnob];
+}
+
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self resetKnob];
+}
+
+@end
+
+// -----------------------------------------------------------------------------
+// DiroLookAreaView: Touch Pan/Swipe Rotation Area
+// -----------------------------------------------------------------------------
+@interface DiroLookAreaView : UIView
+@property (nonatomic, copy) void (^onPanLook)(CGFloat deltaX, CGFloat deltaY);
+@property (nonatomic, copy) void (^onDoubleTap)(void);
+@property (nonatomic, weak) UITouch *activeTouch;
+@property (nonatomic, assign) CGPoint lastPoint;
+@end
+
+@implementation DiroLookAreaView
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.multipleTouchEnabled = YES;
+        self.userInteractionEnabled = YES;
+
+        UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTap:)];
+        doubleTap.numberOfTapsRequired = 2;
+        [self addGestureRecognizer:doubleTap];
+    }
+    return self;
+}
+
+- (void)handleDoubleTap:(UITapGestureRecognizer *)gesture {
+    if (self.onDoubleTap) {
+        self.onDoubleTap();
+    }
+}
+
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (!self.activeTouch) {
+        self.activeTouch = [touches anyObject];
+        self.lastPoint = [self.activeTouch locationInView:self];
+    }
+}
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    for (UITouch *t in touches) {
+        if (t == self.activeTouch) {
+            CGPoint cur = [t locationInView:self];
+            CGFloat dx = cur.x - self.lastPoint.x;
+            CGFloat dy = cur.y - self.lastPoint.y;
+            self.lastPoint = cur;
+            if (self.onPanLook) {
+                self.onPanLook(dx, dy);
+            }
+            break;
+        }
+    }
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    for (UITouch *t in touches) {
+        if (t == self.activeTouch) {
+            self.activeTouch = nil;
+            break;
+        }
+    }
+}
+
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [self touchesEnded:touches withEvent:event];
+}
+@end
+
+// -----------------------------------------------------------------------------
+// DiroDroneOverlayView: High-Tech Cinematic Drone HUD
+// -----------------------------------------------------------------------------
+@interface DiroDroneOverlayView : UIView
+@property (nonatomic, strong) CADisplayLink *displayLink;
+@property (nonatomic, strong) DiroVirtualJoystickView *joystick;
+@property (nonatomic, strong) DiroLookAreaView *lookArea;
+@property (nonatomic, strong) UIView *topBar;
+@property (nonatomic, strong) UIButton *ascendBtn;
+@property (nonatomic, strong) UIButton *descendBtn;
+@property (nonatomic, strong) UIButton *speedBtn;
+@property (nonatomic, strong) UIButton *zoomMinusBtn;
+@property (nonatomic, strong) UIButton *zoomPlusBtn;
+@property (nonatomic, strong) UILabel *fovLabel;
+@property (nonatomic, strong) UIButton *freezeBtn;
+@property (nonatomic, strong) UIButton *teleportBtn;
+@property (nonatomic, strong) UIButton *hideHudBtn;
+@property (nonatomic, strong) UIButton *exitBtn;
+@property (nonatomic, strong) UIButton *miniRestoreBtn;
+@property (nonatomic, strong) UILabel *toastLabel;
+@property (nonatomic, strong) NSTimer *toastTimer;
+
+// Flight dynamics
+@property (nonatomic, assign) float droneX;
+@property (nonatomic, assign) float droneY;
+@property (nonatomic, assign) float droneZ;
+@property (nonatomic, assign) float velX;
+@property (nonatomic, assign) float velY;
+@property (nonatomic, assign) float velZ;
+@property (nonatomic, assign) float yaw;
+@property (nonatomic, assign) float pitch;
+@property (nonatomic, assign) float targetYaw;
+@property (nonatomic, assign) float targetPitch;
+@property (nonatomic, assign) float currentFOV;
+@property (nonatomic, assign) float speedMultiplier;
+@property (nonatomic, assign) float elevInput;
+@property (nonatomic, assign) BOOL isWorldFrozen;
+@property (nonatomic, assign) BOOL isHudHidden;
+@property (nonatomic, assign) BOOL isActive;
+
+@property (nonatomic, copy) void (^onExitBlock)(void);
+@end
+
+@implementation DiroDroneOverlayView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = YES;
+        self.multipleTouchEnabled = YES;
+
+        self.currentFOV = 70.0f;
+        self.speedMultiplier = 1.5f;
+        self.elevInput = 0.0f;
+        self.isWorldFrozen = NO;
+        self.isHudHidden = NO;
+        self.isActive = NO;
+
+        [self setupUI];
+    }
+    return self;
+}
+
+- (void)setupUI {
+    // 1. Look Touch Area (covers right half of screen)
+    self.lookArea = [[DiroLookAreaView alloc] initWithFrame:CGRectZero];
+    __weak DiroDroneOverlayView *weakSelf = self;
+    self.lookArea.onPanLook = ^(CGFloat dx, CGFloat dy) {
+        [weakSelf handleLookPanDx:dx dy:dy];
+    };
+    self.lookArea.onDoubleTap = ^{
+        [weakSelf toggleHudVisibility];
+    };
+    [self addSubview:self.lookArea];
+
+    // 2. Left Virtual Joystick
+    self.joystick = [[DiroVirtualJoystickView alloc] initWithFrame:CGRectMake(0, 0, 115, 115)];
+    [self addSubview:self.joystick];
+
+    // 3. Right Elevation Buttons (⬆️ / ⬇️)
+    self.ascendBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.ascendBtn.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.12 alpha:0.75];
+    self.ascendBtn.layer.cornerRadius = 26.0;
+    self.ascendBtn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.85].CGColor;
+    self.ascendBtn.layer.borderWidth = 1.8;
+    [self.ascendBtn setTitle:@"⬆️" forState:UIControlStateNormal];
+    self.ascendBtn.titleLabel.font = [UIFont systemFontOfSize:22];
+    [self.ascendBtn addTarget:self action:@selector(ascendDown) forControlEvents:UIControlEventTouchDown];
+    [self.ascendBtn addTarget:self action:@selector(elevUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+    [self addSubview:self.ascendBtn];
+
+    self.descendBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.descendBtn.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.12 alpha:0.75];
+    self.descendBtn.layer.cornerRadius = 26.0;
+    self.descendBtn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.85].CGColor;
+    self.descendBtn.layer.borderWidth = 1.8;
+    [self.descendBtn setTitle:@"⬇️" forState:UIControlStateNormal];
+    self.descendBtn.titleLabel.font = [UIFont systemFontOfSize:22];
+    [self.descendBtn addTarget:self action:@selector(descendDown) forControlEvents:UIControlEventTouchDown];
+    [self.descendBtn addTarget:self action:@selector(elevUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+    [self addSubview:self.descendBtn];
+
+    // 4. Top Toolbar View
+    self.topBar = [[UIView alloc] initWithFrame:CGRectZero];
+    self.topBar.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.11 alpha:0.90];
+    self.topBar.layer.cornerRadius = 10.0;
+    self.topBar.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.65].CGColor;
+    self.topBar.layer.borderWidth = 1.2;
+    self.topBar.clipsToBounds = YES;
+    [self addSubview:self.topBar];
+
+    [self setupTopBarContents];
+
+    // 5. Mini Restore Pill (shown only when HUD is hidden)
+    self.miniRestoreBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.miniRestoreBtn.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:0.75];
+    self.miniRestoreBtn.layer.cornerRadius = 8.0;
+    self.miniRestoreBtn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.7].CGColor;
+    self.miniRestoreBtn.layer.borderWidth = 1.0;
+    [self.miniRestoreBtn setTitle:@"👁️ HUD" forState:UIControlStateNormal];
+    [self.miniRestoreBtn setTitleColor:[UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0] forState:UIControlStateNormal];
+    self.miniRestoreBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.miniRestoreBtn addTarget:self action:@selector(toggleHudVisibility) forControlEvents:UIControlEventTouchUpInside];
+    self.miniRestoreBtn.hidden = YES;
+    [self addSubview:self.miniRestoreBtn];
+
+    // 6. Toast Notification Banner
+    self.toastLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    self.toastLabel.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:0.92];
+    self.toastLabel.layer.cornerRadius = 6;
+    self.toastLabel.layer.borderColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.8].CGColor;
+    self.toastLabel.layer.borderWidth = 1.0;
+    self.toastLabel.clipsToBounds = YES;
+    self.toastLabel.textAlignment = NSTextAlignmentCenter;
+    self.toastLabel.font = [UIFont boldSystemFontOfSize:11];
+    self.toastLabel.textColor = [UIColor whiteColor];
+    self.toastLabel.hidden = YES;
+    [self addSubview:self.toastLabel];
+}
+
+- (void)setupTopBarContents {
+    CGFloat x = 6.0;
+    CGFloat btnH = 28.0;
+    CGFloat gap = 5.0;
+
+    // Badge
+    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(x, 6, 52, btnH)];
+    badge.text = @"🛸 DRON";
+    badge.font = [UIFont boldSystemFontOfSize:10];
+    badge.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+    badge.textAlignment = NSTextAlignmentCenter;
+    badge.backgroundColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.15];
+    badge.layer.cornerRadius = 5;
+    badge.clipsToBounds = YES;
+    [self.topBar addSubview:badge];
+    x += 52 + gap;
+
+    // Speed button
+    self.speedBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.speedBtn.frame = CGRectMake(x, 6, 56, btnH);
+    self.speedBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.speedBtn.layer.cornerRadius = 5;
+    self.speedBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+    self.speedBtn.layer.borderWidth = 0.8;
+    [self.speedBtn setTitle:@"⚡ 1.5x" forState:UIControlStateNormal];
+    [self.speedBtn setTitleColor:[UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0] forState:UIControlStateNormal];
+    self.speedBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.speedBtn addTarget:self action:@selector(speedTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.speedBtn];
+    x += 56 + gap;
+
+    // Zoom Minus
+    self.zoomMinusBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.zoomMinusBtn.frame = CGRectMake(x, 6, 28, btnH);
+    self.zoomMinusBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.zoomMinusBtn.layer.cornerRadius = 5;
+    [self.zoomMinusBtn setTitle:@"➖" forState:UIControlStateNormal];
+    self.zoomMinusBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
+    [self.zoomMinusBtn addTarget:self action:@selector(zoomMinusTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.zoomMinusBtn];
+    x += 28 + 2;
+
+    // FOV Label
+    self.fovLabel = [[UILabel alloc] initWithFrame:CGRectMake(x, 6, 36, btnH)];
+    self.fovLabel.text = @"70°";
+    self.fovLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    self.fovLabel.textColor = [UIColor whiteColor];
+    self.fovLabel.textAlignment = NSTextAlignmentCenter;
+    [self.topBar addSubview:self.fovLabel];
+    x += 36 + 2;
+
+    // Zoom Plus
+    self.zoomPlusBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.zoomPlusBtn.frame = CGRectMake(x, 6, 28, btnH);
+    self.zoomPlusBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.zoomPlusBtn.layer.cornerRadius = 5;
+    [self.zoomPlusBtn setTitle:@"➕" forState:UIControlStateNormal];
+    self.zoomPlusBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
+    [self.zoomPlusBtn addTarget:self action:@selector(zoomPlusTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.zoomPlusBtn];
+    x += 28 + gap;
+
+    // Teleport
+    self.teleportBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.teleportBtn.frame = CGRectMake(x, 6, 80, btnH);
+    self.teleportBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.teleportBtn.layer.cornerRadius = 5;
+    self.teleportBtn.layer.borderColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:0.4].CGColor;
+    self.teleportBtn.layer.borderWidth = 0.8;
+    [self.teleportBtn setTitle:@"📍 CJ Keltirish" forState:UIControlStateNormal];
+    [self.teleportBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.teleportBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
+    [self.teleportBtn addTarget:self action:@selector(teleportTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.teleportBtn];
+    x += 80 + gap;
+
+    // Freeze
+    self.freezeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.freezeBtn.frame = CGRectMake(x, 6, 84, btnH);
+    self.freezeBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.freezeBtn.layer.cornerRadius = 5;
+    self.freezeBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+    self.freezeBtn.layer.borderWidth = 0.8;
+    [self.freezeBtn setTitle:@"🧊 Muzlatish" forState:UIControlStateNormal];
+    [self.freezeBtn setTitleColor:[UIColor colorWithRed:0.40 green:0.85 blue:1.00 alpha:1.0] forState:UIControlStateNormal];
+    self.freezeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10];
+    [self.freezeBtn addTarget:self action:@selector(freezeTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.freezeBtn];
+    x += 84 + gap;
+
+    // Hide HUD
+    self.hideHudBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.hideHudBtn.frame = CGRectMake(x, 6, 32, btnH);
+    self.hideHudBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.hideHudBtn.layer.cornerRadius = 5;
+    [self.hideHudBtn setTitle:@"👁️" forState:UIControlStateNormal];
+    self.hideHudBtn.titleLabel.font = [UIFont systemFontOfSize:13];
+    [self.hideHudBtn addTarget:self action:@selector(toggleHudVisibility) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.hideHudBtn];
+    x += 32 + gap;
+
+    // Exit
+    self.exitBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.exitBtn.frame = CGRectMake(x, 6, 68, btnH);
+    self.exitBtn.backgroundColor = [UIColor colorWithRed:0.80 green:0.15 blue:0.15 alpha:1.0];
+    self.exitBtn.layer.cornerRadius = 5;
+    [self.exitBtn setTitle:@"✕ YOPISH" forState:UIControlStateNormal];
+    [self.exitBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.exitBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.exitBtn addTarget:self action:@selector(exitTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.exitBtn];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGFloat w = self.bounds.size.width;
+    CGFloat h = self.bounds.size.height;
+    if (w <= 0 || h <= 0) return;
+
+    CGFloat tbW = MIN(520.0, w - 20.0);
+    self.topBar.frame = CGRectMake((w - tbW) / 2.0, 10.0, tbW, 40.0);
+
+    self.restoreHudPill.frame = CGRectMake(w - 70.0, 12.0, 58.0, 32.0);
+    self.toastLabel.frame = CGRectMake((w - 320.0) / 2.0, 56.0, 320.0, 24.0);
+
+    self.joystick.frame = CGRectMake(35.0, h - 145.0, 115.0, 115.0);
+
+    self.lookArea.frame = CGRectMake(w * 0.38, 55.0, w * 0.62 - 80.0, h - 60.0);
+
+    CGFloat ebX = w - 70.0;
+    CGFloat ebY = h - 145.0;
+    self.ascendBtn.frame = CGRectMake(ebX, ebY, 52.0, 52.0);
+    self.descendBtn.frame = CGRectMake(ebX, ebY + 60.0, 52.0, 52.0);
+}
+
+- (void)handleLookPanDx:(CGFloat)dx dy:(CGFloat)dy {
+    self.targetYaw += (float)dx * 0.0035f;
+    self.targetPitch -= (float)dy * 0.0035f;
+    if (self.targetPitch > 1.45f) self.targetPitch = 1.45f;
+    if (self.targetPitch < -1.45f) self.targetPitch = -1.45f;
+}
+
+- (void)ascendDown {
+    self.elevInput = 1.0f;
+}
+
+- (void)descendDown {
+    self.elevInput = -1.0f;
+}
+
+- (void)elevUp {
+    self.elevInput = 0.0f;
+}
+
+- (void)speedTapped {
+    if (self.speedMultiplier < 1.0f) {
+        self.speedMultiplier = 1.5f;
+        [self.speedBtn setTitle:@"⚡ 1.5x" forState:UIControlStateNormal];
+        [self showToast:@"⚡ Parvoz tezligi: 1.5x (Standart)"];
+    } else if (self.speedMultiplier < 2.5f) {
+        self.speedMultiplier = 4.0f;
+        [self.speedBtn setTitle:@"🚀 4.0x" forState:UIControlStateNormal];
+        [self showToast:@"🚀 Parvoz tezligi: 4.0x (Tezkor FPV)"];
+    } else if (self.speedMultiplier < 6.0f) {
+        self.speedMultiplier = 10.0f;
+        [self.speedBtn setTitle:@"🔥 10x" forState:UIControlStateNormal];
+        [self showToast:@"🔥 Parvoz tezligi: 10.0x (Turbo Super)"];
+    } else {
+        self.speedMultiplier = 0.5f;
+        [self.speedBtn setTitle:@"🐢 0.5x" forState:UIControlStateNormal];
+        [self showToast:@"🐢 Parvoz tezligi: 0.5x (Kinematografik Sekin)"];
+    }
+}
+
+- (void)zoomMinusTapped {
+    if (self.currentFOV > 20.0f) {
+        self.currentFOV -= 15.0f;
+        if (self.currentFOV < 15.0f) self.currentFOV = 15.0f;
+        self.fovLabel.text = [NSString stringWithFormat:@"%.0f°", self.currentFOV];
+        camera_set_fov(self.currentFOV);
+        [self showToast:[NSString stringWithFormat:@"🔍 Zoom Yaqinlashdi: %.0f°", self.currentFOV]];
+    }
+}
+
+- (void)zoomPlusTapped {
+    if (self.currentFOV < 100.0f) {
+        self.currentFOV += 15.0f;
+        if (self.currentFOV > 105.0f) self.currentFOV = 105.0f;
+        self.fovLabel.text = [NSString stringWithFormat:@"%.0f°", self.currentFOV];
+        camera_set_fov(self.currentFOV);
+        [self showToast:[NSString stringWithFormat:@"🔍 Keng Burchak (Wide): %.0f°", self.currentFOV]];
+    }
+}
+
+- (void)freezeTapped {
+    self.isWorldFrozen = !self.isWorldFrozen;
+    set_game_frozen(self.isWorldFrozen);
+    if (self.isWorldFrozen) {
+        self.freezeBtn.backgroundColor = [UIColor colorWithRed:0.15 green:0.40 blue:0.60 alpha:1.0];
+        [self.freezeBtn setTitle:@"❄️ Muzladi" forState:UIControlStateNormal];
+        [self showToast:@"❄️ Butun dunyo to'xtatildi (Freeze World)!"];
+    } else {
+        self.freezeBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+        [self.freezeBtn setTitle:@"🧊 Muzlatish" forState:UIControlStateNormal];
+        [self showToast:@"▶️ O'yin vaqti tiklandi!"];
+    }
+}
+
+- (void)teleportTapped {
+    teleport_player_to_coords(self.droneX, self.droneY, self.droneZ - 1.2f);
+    [self showToast:@"✅ CJ dron turgan joyga teleport qilindi!"];
+}
+
+- (void)toggleHudVisibility {
+    self.isHudHidden = !self.isHudHidden;
+    self.topBar.hidden = self.isHudHidden;
+    self.joystick.hidden = self.isHudHidden;
+    self.ascendBtn.hidden = self.isHudHidden;
+    self.descendBtn.hidden = self.isHudHidden;
+    self.miniRestoreBtn.hidden = !self.isHudHidden;
+
+    if (self.isHudHidden) {
+        [self showToast:@"💡 Ekranga 2 marta teginsangiz, tugmalar qaytadi"];
+    }
+}
+
+- (void)showToast:(NSString *)msg {
+    self.toastLabel.text = msg;
+    self.toastLabel.alpha = 1.0;
+    self.toastLabel.hidden = NO;
+    [self.toastTimer invalidate];
+    self.toastTimer = [NSTimer scheduledTimerWithTimeInterval:2.2 target:self selector:@selector(hideToast) userInfo:nil repeats:NO];
+}
+
+- (void)hideToast {
+    [UIView animateWithDuration:0.25 animations:^{
+        self.toastLabel.alpha = 0.0;
+    } completion:^(BOOL finished) {
+        self.toastLabel.hidden = YES;
+    }];
+}
+
+- (void)startDroneFlight {
+    self.isActive = YES;
+    if (g_floatingButton) g_floatingButton.hidden = YES;
+
+    uintptr_t ped = get_player_ped();
+    if (ped) {
+        float px = 0, py = 0, pz = 0;
+        get_entity_position(ped, &px, &py, &pz);
+        self.droneX = px;
+        self.droneY = py;
+        self.droneZ = pz + 2.5f;
+    } else {
+        uintptr_t cam = get_the_camera();
+        self.droneX = *(float *)(cam + 0x9a0);
+        self.droneY = *(float *)(cam + 0x9a4);
+        self.droneZ = *(float *)(cam + 0x9a8) + 2.0f;
+    }
+
+    self.yaw = 0.0f;
+    self.pitch = -0.05f;
+    self.targetYaw = self.yaw;
+    self.targetPitch = self.pitch;
+    self.velX = self.velY = self.velZ = 0.0f;
+    self.elevInput = 0.0f;
+
+    // Take camera control into fixed mode
+    camera_take_control(14, 2);
+
+    // Apply initial position immediately
+    [self applyCameraToGame];
+
+    // Start 60 FPS update loop
+    [self.displayLink invalidate];
+    self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrameUpdate:)];
+    [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+
+    [self showToast:@"🛸 Dron faollashdi! Chap joystik va ekranni silang."];
+}
+
+- (void)stopDroneFlight {
+    self.isActive = NO;
+
+    if (self.displayLink) {
+        [self.displayLink invalidate];
+        self.displayLink = nil;
+    }
+
+    if (self.isWorldFrozen) {
+        set_game_frozen(NO);
+        self.isWorldFrozen = NO;
+    }
+
+    camera_set_fov(70.0f);
+    camera_restore();
+}
+
+- (void)exitTapped {
+    [self stopDroneFlight];
+    if (g_floatingButton) g_floatingButton.hidden = NO;
+    [self removeFromSuperview];
+    if (self.onExitBlock) {
+        self.onExitBlock();
+    }
+}
+
+- (void)onFrameUpdate:(CADisplayLink *)link {
+    if (!self.isActive) return;
+
+    float dt = (float)(link.targetTimestamp - link.timestamp);
+    if (dt <= 0.0f || dt > 0.1f) dt = 1.0f / 60.0f;
+
+    float cosPitch = cosf(self.pitch);
+    float sinPitch = sinf(self.pitch);
+    float cosYaw = cosf(self.yaw);
+    float sinYaw = sinf(self.yaw);
+
+    // Camera forward vector in world coordinates
+    float fwdX = sinYaw * cosPitch;
+    float fwdY = cosYaw * cosPitch;
+    float fwdZ = sinPitch;
+
+    // Camera right vector (strafe horizontal)
+    float rightX = cosYaw;
+    float rightY = -sinYaw;
+
+    float baseSpeed = 8.0f;
+    float speed = baseSpeed * self.speedMultiplier;
+
+    float targetVx = (fwdX * (float)self.joystick.stickY + rightX * (float)self.joystick.stickX) * speed;
+    float targetVy = (fwdY * (float)self.joystick.stickY + rightY * (float)self.joystick.stickX) * speed;
+    float targetVz = (fwdZ * (float)self.joystick.stickY + self.elevInput) * speed;
+
+    // Exponential smoothing / damping
+    float posDamping = 0.22f;
+    self.velX += (targetVx - self.velX) * posDamping;
+    self.velY += (targetVy - self.velY) * posDamping;
+    self.velZ += (targetVz - self.velZ) * posDamping;
+
+    self.droneX += self.velX * dt;
+    self.droneY += self.velY * dt;
+    self.droneZ += self.velZ * dt;
+
+    // Angular smoothing for look direction
+    float rotDamping = 0.32f;
+    self.yaw += (self.targetYaw - self.yaw) * rotDamping;
+    self.pitch += (self.targetPitch - self.pitch) * rotDamping;
+
+    [self applyCameraToGame];
+}
+
+- (void)applyCameraToGame {
+    float cosPitch = cosf(self.pitch);
+    float sinPitch = sinf(self.pitch);
+    float cosYaw = cosf(self.yaw);
+    float sinYaw = sinf(self.yaw);
+
+    float fwdX = sinYaw * cosPitch;
+    float fwdY = cosYaw * cosPitch;
+    float fwdZ = sinPitch;
+
+    float camPos[3] = { self.droneX, self.droneY, self.droneZ };
+    float camTarget[3] = {
+        self.droneX + fwdX * 25.0f,
+        self.droneY + fwdY * 25.0f,
+        self.droneZ + fwdZ * 25.0f
+    };
+
+    camera_set_fixed_pos(camPos, camTarget);
+}
+
+@end
+
+// -----------------------------------------------------------------------------
+// DiroMenuModal: Full Modern Cheat Hub with 6 Categories
 // -----------------------------------------------------------------------------
 @interface DiroMenuModal () <UITextFieldDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
@@ -817,8 +1598,8 @@ static NSString *get_vehicle_name(int modelId) {
     self.toastLabel.hidden = YES;
     [self addSubview:self.toastLabel];
 
-    // Category segmented control (5 tabs)
-    NSArray *categories = @[@"🚗 Avto", @"🎨 Rang", @"🛡️ O'yinchi", @"🔫 Qurol", @"⏰ Vaqt & Havo"];
+    // Category segmented control (6 tabs)
+    NSArray *categories = @[@"🚗 Avto", @"🎨 Rang", @"🛸 Dron", @"🛡️ O'yinchi", @"🔫 Qurol", @"⏰ Vaqt"];
     self.segmentedControl = [[UISegmentedControl alloc] initWithItems:categories];
     self.segmentedControl.frame = CGRectMake(8, 73, w - 16, 28);
     self.segmentedControl.selectedSegmentIndex = 0;
@@ -1141,9 +1922,119 @@ static NSString *get_vehicle_name(int modelId) {
     }
 
     // =========================================================================
-    // Category 2: O'yinchi (Player Health, God Mode, Money, Motion)
+    // Category 2: Dron & Erkin Kamera (Cinematic Drone / Free Camera)
     // =========================================================================
     if (cat == 2) {
+        // Hero Card with Start Button
+        UIView *heroCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 82)];
+        heroCard.backgroundColor = [UIColor colorWithRed:0.11 green:0.12 blue:0.18 alpha:1.0];
+        heroCard.layer.cornerRadius = 10.0;
+        heroCard.layer.borderColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:0.8].CGColor;
+        heroCard.layer.borderWidth = 1.2;
+        heroCard.clipsToBounds = YES;
+
+        UILabel *droneTitle = [[UILabel alloc] initWithFrame:CGRectMake(10, 8, btnW - 20, 18)];
+        droneTitle.text = @"🛸 KINEMATOGRAFIK DRON & ERKIN KAMERA";
+        droneTitle.font = [UIFont boldSystemFontOfSize:12.5];
+        droneTitle.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+        [heroCard addSubview:droneTitle];
+
+        UIButton *startDroneBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        startDroneBtn.frame = CGRectMake(10, 32, btnW - 20, 42);
+        startDroneBtn.backgroundColor = [UIColor colorWithRed:1.00 green:0.80 blue:0.00 alpha:1.0];
+        startDroneBtn.layer.cornerRadius = 8.0;
+        [startDroneBtn setTitle:@"🚀 DRONNI ISHGA TUSHIRISH (START)" forState:UIControlStateNormal];
+        [startDroneBtn setTitleColor:[UIColor blackColor] forState:UIControlStateNormal];
+        startDroneBtn.titleLabel.font = [UIFont boldSystemFontOfSize:13.5];
+        [startDroneBtn addTarget:self action:@selector(startDroneTapped) forControlEvents:UIControlEventTouchUpInside];
+        [heroCard addSubview:startDroneBtn];
+
+        [self.scrollView addSubview:heroCard];
+        curY += 90.0;
+
+        // Drone instruction and feature items
+        NSArray *dFeatures = @[
+            @{
+                @"icon": @"🕹️",
+                @"title": @"Chap Virtual Joystik",
+                @"desc": @"Oldinga, orqaga, chapga va o'ngga (strafe) 60 FPS silliq harakat"
+            },
+            @{
+                @"icon": @"👆",
+                @"title": @"O'ng Sensor Maydon",
+                @"desc": @"Ekranni barmog'ingiz bilan silang: 360° burilish va vertikal qarash"
+            },
+            @{
+                @"icon": @"⬆️",
+                @"title": @"Vertikal Balandlik (⬆️ / ⬇️)",
+                @"desc": @"Ekranning o'ng tomonidagi tugmalar orqali osmonga ko'tarilish yoki pastlash"
+            },
+            @{
+                @"icon": @"⚡",
+                @"title": @"4 Xil Parvoz Tezligi",
+                @"desc": @"0.5x (Kino/Sekin), 1.5x (Standart), 4.0x (Tezkor FPV), 10.0x (Turbo Super)"
+            },
+            @{
+                @"icon": @"🔍",
+                @"title": @"Optik Zoom & FOV",
+                @"desc": @"15° (Kuchli tele-zoom) dan 105° (Keng burchakli panorama) gacha boshqarish"
+            },
+            @{
+                @"icon": @"🧊",
+                @"title": @"Dunyoni Muzlatish (Freeze World)",
+                @"desc": @"O'yin vaqtini to'xtatib, havoda muzlab qolgan mashinalar atrofida uchish"
+            },
+            @{
+                @"icon": @"📍",
+                @"title": @"CJ Teleportatsiya",
+                @"desc": @"Dron uchib borgan istalgan koordinataga CJ yoki mashinangizni ko'chirish"
+            },
+            @{
+                @"icon": @"👁️",
+                @"title": @"Kinematografik Rejim (HUD yashirish)",
+                @"desc": @"Barcha tugmalarni berkitib video olish. Qaytarish uchun ekranga 2 marta bosing"
+            }
+        ];
+
+        CGFloat fCardH = 46.0;
+        CGFloat fGap = 6.0;
+        for (NSDictionary *fDict in dFeatures) {
+            UIView *fc = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, fCardH)];
+            fc.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.16 alpha:0.9];
+            fc.layer.cornerRadius = 7.0;
+            fc.layer.borderColor = [UIColor colorWithWhite:0.25 alpha:0.6].CGColor;
+            fc.layer.borderWidth = 0.8;
+
+            UILabel *iconLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, (fCardH - 24) / 2.0, 26, 24)];
+            iconLbl.text = fDict[@"icon"];
+            iconLbl.font = [UIFont systemFontOfSize:18];
+            iconLbl.textAlignment = NSTextAlignmentCenter;
+            [fc addSubview:iconLbl];
+
+            UILabel *tLbl = [[UILabel alloc] initWithFrame:CGRectMake(38, 5, btnW - 46, 16)];
+            tLbl.text = fDict[@"title"];
+            tLbl.font = [UIFont boldSystemFontOfSize:11.5];
+            tLbl.textColor = [UIColor colorWithRed:1.00 green:0.84 blue:0.00 alpha:1.0];
+            [fc addSubview:tLbl];
+
+            UILabel *dLbl = [[UILabel alloc] initWithFrame:CGRectMake(38, 22, btnW - 46, 18)];
+            dLbl.text = fDict[@"desc"];
+            dLbl.font = [UIFont systemFontOfSize:9.5];
+            dLbl.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+            [fc addSubview:dLbl];
+
+            [self.scrollView addSubview:fc];
+            curY += fCardH + fGap;
+        }
+
+        self.scrollView.contentSize = CGSizeMake(btnW, curY + 12.0);
+        return;
+    }
+
+    // =========================================================================
+    // Category 3: O'yinchi (Player Health, God Mode, Money, Motion)
+    // =========================================================================
+    if (cat == 3) {
         UIView *godCard = [[UIView alloc] initWithFrame:CGRectMake(0, curY, btnW, 54)];
         godCard.backgroundColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.16 alpha:1.0];
         godCard.layer.cornerRadius = 8.0;
@@ -1264,9 +2155,9 @@ static NSString *get_vehicle_name(int modelId) {
     }
 
     // =========================================================================
-    // Category 3: Qurollar (Weapons Packs 1, 2, 3)
+    // Category 4: Qurollar (Weapons Packs 1, 2, 3)
     // =========================================================================
-    if (cat == 3) {
+    if (cat == 4) {
         NSArray *wPacks = @[
             @{
                 @"title": @"🔫 1-To'plam (Ko'cha qurollari)",
@@ -1336,9 +2227,9 @@ static NSString *get_vehicle_name(int modelId) {
     }
 
     // =========================================================================
-    // Category 4: Vaqt & Havo (Clock, Weather & Wanted Level)
+    // Category 5: Vaqt & Havo (Clock, Weather & Wanted Level)
     // =========================================================================
-    if (cat == 4) {
+    if (cat == 5) {
         // --- Section 1: Soat / Vaqtni o'zgartirish ---
         UILabel *tHead = [[UILabel alloc] initWithFrame:CGRectMake(4, curY, btnW - 8, 16)];
         tHead.text = @"⏰ Soat / Vaqtni o'zgartirish:";
@@ -1587,6 +2478,27 @@ static NSString *get_vehicle_name(int modelId) {
         UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:st];
         [gen prepare];
         [gen impactOccurred];
+    }
+}
+
+- (void)startDroneTapped {
+    [self hapticImpact:1];
+    [self toggleVisibility];
+
+    if (!g_droneOverlay) {
+        g_droneOverlay = [[DiroDroneOverlayView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        g_droneOverlay.onExitBlock = ^{
+            NSLog(@"[DIRO] Drone mode exited cleanly.");
+        };
+    }
+
+    UIViewController *rootVC = g_diroWindow.rootViewController;
+    if (rootVC) {
+        g_droneOverlay.frame = rootVC.view.bounds;
+        if (g_droneOverlay.superview != rootVC.view) {
+            [rootVC.view addSubview:g_droneOverlay];
+        }
+        [g_droneOverlay startDroneFlight];
     }
 }
 

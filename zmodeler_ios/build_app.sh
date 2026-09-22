@@ -35,11 +35,13 @@ xcrun actool ZModelerApp/Assets.xcassets \
     --app-icon AppIcon \
     --output-format human-readable-text || true
 
-# Also copy raw PNG icons directly to app root as fallback
+# Also copy raw PNG icons and iTunesArtwork directly to app root as fallback
 cp ZModelerApp/Assets.xcassets/AppIcon.appiconset/*.png "$APP_DIR/" || true
+cp ZModelerApp/Assets.xcassets/AppIcon.appiconset/iTunesArtwork* "$APP_DIR/" || true
 
-# 4. Copy Web/3D Studio assets
-echo "4. Bundling 3D Studio assets to www/..."
+# 4. Copy Web/3D Studio assets to both bundle root and www/
+echo "4. Bundling 3D Studio assets..."
+cp -r ZModelerUI/* "$APP_DIR/"
 mkdir -p "$APP_DIR/www"
 cp -r ZModelerUI/* "$APP_DIR/www/"
 
@@ -47,9 +49,10 @@ cp -r ZModelerUI/* "$APP_DIR/www/"
 echo "5. Applying ad-hoc codesign..."
 codesign -s - --force "$APP_DIR"
 
-# 6. Package IPA
+# 6. Package IPA with iTunesArtwork
 echo "6. Packaging ZModeler_iOS.ipa..."
-zip -r9 ZModeler_iOS.ipa Payload
+cp ZModelerApp/Assets.xcassets/AppIcon.appiconset/iTunesArtwork* . || true
+zip -r9 ZModeler_iOS.ipa Payload iTunesArtwork iTunesArtwork@2x 2>/dev/null || zip -r9 ZModeler_iOS.ipa Payload
 
 echo "=== SUCCESS! ZModeler_iOS.ipa is ready! ==="
 ls -lh ZModeler_iOS.ipa

@@ -23,10 +23,8 @@
 @end
 
 @class DiroDroneOverlayView;
-@interface DiroDroneOverlayView (DiroSync)
-- (void)applyCameraToGame;
-@end
 static BOOL g_droneActive = NO;
+static void hook_ios_tick(void);
 static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
@@ -323,31 +321,6 @@ static void set_game_hud_visible(BOOL visible) {
             *(uint16_t *)(cam + 0x42) = 0;
         }
     }
-}
-
-static void (*orig_ios_tick)(id, SEL) = NULL;
-static void my_ios_tick(id self, SEL _cmd) {
-    if (g_droneActive && g_droneOverlay) {
-        [g_droneOverlay applyCameraToGame];
-    }
-    if (orig_ios_tick) {
-        orig_ios_tick(self, _cmd);
-    }
-}
-
-static void hook_ios_tick(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        Class cls = NSClassFromString(@"IOSViewController");
-        if (cls) {
-            Method m = class_getInstanceMethod(cls, @selector(tick));
-            if (m) {
-                orig_ios_tick = (void(*)(id, SEL))method_getImplementation(m);
-                method_setImplementation(m, (IMP)my_ios_tick);
-                NSLog(@"[DIRO] Hooked IOSViewController -tick successfully!");
-            }
-        }
-    });
 }
 
 static void set_game_frozen(BOOL freeze) {
@@ -2021,6 +1994,31 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 @end
+
+static void (*orig_ios_tick)(id, SEL) = NULL;
+static void my_ios_tick(id self, SEL _cmd) {
+    if (g_droneActive && g_droneOverlay) {
+        [g_droneOverlay applyCameraToGame];
+    }
+    if (orig_ios_tick) {
+        orig_ios_tick(self, _cmd);
+    }
+}
+
+static void hook_ios_tick(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = NSClassFromString(@"IOSViewController");
+        if (cls) {
+            Method m = class_getInstanceMethod(cls, @selector(tick));
+            if (m) {
+                orig_ios_tick = (void(*)(id, SEL))method_getImplementation(m);
+                method_setImplementation(m, (IMP)my_ios_tick);
+                NSLog(@"[DIRO] Hooked IOSViewController -tick successfully!");
+            }
+        }
+    });
+}
 
 // -----------------------------------------------------------------------------
 // DiroMenuModal: Full Modern Cheat Hub with 6 Categories

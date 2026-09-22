@@ -235,17 +235,18 @@ static void camera_take_control(const float target[3], int16_t switchType) {
         fn(cam, target, switchType, 1);
     }
 
-    // Direct memory assignments for 100% stability
-    *(int32_t *)(cam + 0xb4) = 1;
-    *(int16_t *)(cam + 0xc64) = 15;
+    // Direct memory flags to lock camera under script/drone control
+    *(int32_t *)(cam + 0xb4) = 1;           // whoTakesControl = 1 (SCRIPT)
+    *(int16_t *)(cam + 0xc64) = 14;         // MODE_FIXED (14)
     *(uint16_t *)(cam + 0x31) = 0x100;
+    *(uint8_t *)(cam + 0x36) = 1;           // Request cam switch
+    *(uint8_t *)(cam + 0x38) = 1;           // Trigger script cam update in CCamera::Process
+    *(int16_t *)(cam + 0xc68) = switchType; // 2 = JUMP_CUT
     if (target) {
         *(float *)(cam + 0x83c) = target[0];
         *(float *)(cam + 0x840) = target[1];
         *(float *)(cam + 0x844) = target[2];
     }
-    *(int16_t *)(cam + 0xc68) = switchType;
-    *(uint8_t *)(cam + 0x38) = 1;
 }
 
 static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
@@ -259,7 +260,7 @@ static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
         fn(cam, pos, target);
     }
 
-    // Direct memory backup for 100% immediate effect
+    // Direct script buffer assignments
     *(float *)(cam + 0x848) = pos[0];
     *(float *)(cam + 0x84c) = pos[1];
     *(float *)(cam + 0x850) = pos[2];
@@ -267,11 +268,6 @@ static void camera_set_fixed_pos(const float pos[3], const float target[3]) {
     *(float *)(cam + 0x858) = target[1];
     *(float *)(cam + 0x85c) = target[2];
     *(uint8_t *)(cam + 0x54) = 0;
-
-    // Keep world streaming center synchronized with drone position
-    *(float *)(cam + 0x9a0) = pos[0];
-    *(float *)(cam + 0x9a4) = pos[1];
-    *(float *)(cam + 0x9a8) = pos[2];
 }
 
 static void camera_set_fov(float fov) {
@@ -281,17 +277,22 @@ static void camera_set_fov(float fov) {
     if (activeIdx > 2) activeIdx = 0;
     uintptr_t activeCam = cam + (uintptr_t)activeIdx * 0x228;
     *(float *)(activeCam + 0x8c) = fov;
+    *(float *)(activeCam + 0x90) = fov;
+    *(float *)(activeCam + 0x94) = fov;
 }
 
 static void camera_restore(void) {
     uintptr_t cam = get_the_camera();
     if (!cam) return;
     intptr_t slide = get_gtasa_slide();
-    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x134e68;
+    uintptr_t addr = (uintptr_t)slide + 0x100000000ULL + 0x134e68; // CCamera::RestoreWithJumpCut
     void (*fn)(uintptr_t) = (void(*)(uintptr_t))addr;
     if (fn) {
         fn(cam);
     }
+    *(int32_t *)(cam + 0xb4) = 0;
+    *(uint8_t *)(cam + 0x36) = 1;
+    *(uint8_t *)(cam + 0x38) = 0;
 }
 
 static void set_game_frozen(BOOL freeze) {
@@ -957,8 +958,6 @@ static NSString *get_vehicle_name(int modelId) {
 @interface DiroLookAreaView : UIView
 @property (nonatomic, copy) void (^onPanLook)(CGFloat deltaX, CGFloat deltaY);
 @property (nonatomic, copy) void (^onDoubleTap)(void);
-@property (nonatomic, weak) UITouch *activeTouch;
-@property (nonatomic, assign) CGPoint lastPoint;
 @end
 
 @implementation DiroLookAreaView
@@ -969,6 +968,11 @@ static NSString *get_vehicle_name(int modelId) {
         self.multipleTouchEnabled = YES;
         self.userInteractionEnabled = YES;
 
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        pan.maximumNumberOfTouches = 1;
+        pan.cancelsTouchesInView = NO;
+        [self addGestureRecognizer:pan];
+
         UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTap:)];
         doubleTap.numberOfTapsRequired = 2;
         [self addGestureRecognizer:doubleTap];
@@ -976,45 +980,22 @@ static NSString *get_vehicle_name(int modelId) {
     return self;
 }
 
+- (void)handlePan:(UIPanGestureRecognizer *)pan {
+    if (pan.state == UIGestureRecognizerStateChanged) {
+        CGPoint trans = [pan translationInView:self];
+        [pan setTranslation:CGPointZero inView:self];
+        if (self.onPanLook) {
+            self.onPanLook(trans.x, trans.y);
+        }
+    } else if (pan.state == UIGestureRecognizerStateBegan) {
+        [pan setTranslation:CGPointZero inView:self];
+    }
+}
+
 - (void)handleDoubleTap:(UITapGestureRecognizer *)gesture {
     if (self.onDoubleTap) {
         self.onDoubleTap();
     }
-}
-
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    if (!self.activeTouch) {
-        self.activeTouch = [touches anyObject];
-        self.lastPoint = [self.activeTouch locationInView:self];
-    }
-}
-
-- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    for (UITouch *t in touches) {
-        if (t == self.activeTouch) {
-            CGPoint cur = [t locationInView:self];
-            CGFloat dx = cur.x - self.lastPoint.x;
-            CGFloat dy = cur.y - self.lastPoint.y;
-            self.lastPoint = cur;
-            if (self.onPanLook) {
-                self.onPanLook(dx, dy);
-            }
-            break;
-        }
-    }
-}
-
-- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    for (UITouch *t in touches) {
-        if (t == self.activeTouch) {
-            self.activeTouch = nil;
-            break;
-        }
-    }
-}
-
-- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    [self touchesEnded:touches withEvent:event];
 }
 @end
 
@@ -1272,6 +1253,17 @@ static NSString *get_vehicle_name(int modelId) {
     [self.topBar addSubview:self.exitBtn];
 }
 
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (!self.isActive || self.hidden || self.alpha < 0.01) {
+        return nil;
+    }
+    UIView *hit = [super hitTest:point withEvent:event];
+    if (hit == nil || hit == self) {
+        return self.lookArea;
+    }
+    return hit;
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat w = self.bounds.size.width;
@@ -1286,7 +1278,8 @@ static NSString *get_vehicle_name(int modelId) {
 
     self.joystick.frame = CGRectMake(35.0, h - 145.0, 115.0, 115.0);
 
-    self.lookArea.frame = CGRectMake(w * 0.38, 55.0, w * 0.62 - 80.0, h - 60.0);
+    // Look area covers the entire screen behind buttons
+    self.lookArea.frame = CGRectMake(w * 0.25, 0, w * 0.75, h);
 
     CGFloat ebX = w - 70.0;
     CGFloat ebY = h - 145.0;
@@ -1295,8 +1288,8 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 - (void)handleLookPanDx:(CGFloat)dx dy:(CGFloat)dy {
-    self.targetYaw += (float)dx * 0.0035f;
-    self.targetPitch -= (float)dy * 0.0035f;
+    self.targetYaw += (float)dx * 0.0040f;
+    self.targetPitch -= (float)dy * 0.0040f;
     if (self.targetPitch > 1.45f) self.targetPitch = 1.45f;
     if (self.targetPitch < -1.45f) self.targetPitch = -1.45f;
 }
@@ -1339,6 +1332,7 @@ static NSString *get_vehicle_name(int modelId) {
         if (self.currentFOV < 15.0f) self.currentFOV = 15.0f;
         self.fovLabel.text = [NSString stringWithFormat:@"%.0f°", self.currentFOV];
         camera_set_fov(self.currentFOV);
+        [self applyCameraToGame];
         [self showToast:[NSString stringWithFormat:@"🔍 Zoom Yaqinlashdi: %.0f°", self.currentFOV]];
     }
 }
@@ -1349,6 +1343,7 @@ static NSString *get_vehicle_name(int modelId) {
         if (self.currentFOV > 105.0f) self.currentFOV = 105.0f;
         self.fovLabel.text = [NSString stringWithFormat:@"%.0f°", self.currentFOV];
         camera_set_fov(self.currentFOV);
+        [self applyCameraToGame];
         [self showToast:[NSString stringWithFormat:@"🔍 Keng Burchak (Wide): %.0f°", self.currentFOV]];
     }
 }
@@ -1405,13 +1400,13 @@ static NSString *get_vehicle_name(int modelId) {
     self.isActive = YES;
     if (g_floatingButton) g_floatingButton.hidden = YES;
 
+    uintptr_t cam = get_the_camera();
     uintptr_t ped = get_player_ped();
     float px = 0.0f, py = 0.0f, pz = 0.0f;
     if (ped) {
         get_entity_position(ped, &px, &py, &pz);
     }
     if (px == 0.0f && py == 0.0f && pz == 0.0f) {
-        uintptr_t cam = get_the_camera();
         if (cam) {
             px = *(float *)(cam + 0x9a0);
             py = *(float *)(cam + 0x9a4);
@@ -1422,30 +1417,26 @@ static NSString *get_vehicle_name(int modelId) {
     self.droneY = py;
     self.droneZ = pz + 2.5f;
 
-    self.yaw = 0.0f;
-    self.pitch = -0.05f;
+    // Smoothly inherit current camera look angle to avoid camera jerk/snap
+    float initYaw = 0.0f;
+    float initPitch = -0.05f;
+    if (cam) {
+        float fwdX = *(float *)(cam + 0x980);
+        float fwdY = *(float *)(cam + 0x984);
+        float fwdZ = *(float *)(cam + 0x988);
+        float lenH = sqrtf(fwdX * fwdX + fwdY * fwdY);
+        if (lenH > 0.01f) {
+            initYaw = atan2f(fwdX, fwdY);
+            initPitch = asinf(fminf(fmaxf(fwdZ, -0.95f), 0.95f));
+        }
+    }
+
+    self.yaw = initYaw;
+    self.pitch = initPitch;
     self.targetYaw = self.yaw;
     self.targetPitch = self.pitch;
     self.velX = self.velY = self.velZ = 0.0f;
     self.elevInput = 0.0f;
-
-    float cosPitch = cosf(self.pitch);
-    float sinPitch = sinf(self.pitch);
-    float cosYaw = cosf(self.yaw);
-    float sinYaw = sinf(self.yaw);
-
-    float fwdX = sinYaw * cosPitch;
-    float fwdY = cosYaw * cosPitch;
-    float fwdZ = sinPitch;
-
-    float initTarget[3] = {
-        self.droneX + fwdX * 25.0f,
-        self.droneY + fwdY * 25.0f,
-        self.droneZ + fwdZ * 25.0f
-    };
-
-    // Take camera control safely via official CCamera::TakeControlAtPosition (0x13aa78)
-    camera_take_control(initTarget, 2);
 
     // Apply initial position immediately
     [self applyCameraToGame];
@@ -1455,7 +1446,7 @@ static NSString *get_vehicle_name(int modelId) {
     self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrameUpdate:)];
     [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
-    [self showToast:@"🛸 Dron faollashdi! Chap joystik va ekranni silang."];
+    [self showToast:@"🛸 Dron faollashdi! Joystik va ekranni silang."];
 }
 
 - (void)stopDroneFlight {
@@ -1504,7 +1495,7 @@ static NSString *get_vehicle_name(int modelId) {
     float rightX = cosYaw;
     float rightY = -sinYaw;
 
-    float baseSpeed = 8.0f;
+    float baseSpeed = 10.0f;
     float speed = baseSpeed * self.speedMultiplier;
 
     float targetVx = (fwdX * (float)self.joystick.stickY + rightX * (float)self.joystick.stickX) * speed;
@@ -1512,7 +1503,7 @@ static NSString *get_vehicle_name(int modelId) {
     float targetVz = (fwdZ * (float)self.joystick.stickY + self.elevInput) * speed;
 
     // Exponential smoothing / damping
-    float posDamping = 0.22f;
+    float posDamping = 0.25f;
     self.velX += (targetVx - self.velX) * posDamping;
     self.velY += (targetVy - self.velY) * posDamping;
     self.velZ += (targetVz - self.velZ) * posDamping;
@@ -1522,7 +1513,7 @@ static NSString *get_vehicle_name(int modelId) {
     self.droneZ += self.velZ * dt;
 
     // Angular smoothing for look direction
-    float rotDamping = 0.32f;
+    float rotDamping = 0.35f;
     self.yaw += (self.targetYaw - self.yaw) * rotDamping;
     self.pitch += (self.targetPitch - self.pitch) * rotDamping;
 
@@ -1530,14 +1521,28 @@ static NSString *get_vehicle_name(int modelId) {
 }
 
 - (void)applyCameraToGame {
+    uintptr_t cam = get_the_camera();
+    if (!cam) return;
+
     float cosPitch = cosf(self.pitch);
     float sinPitch = sinf(self.pitch);
     float cosYaw = cosf(self.yaw);
     float sinYaw = sinf(self.yaw);
 
+    // Forward vector in world coordinates
     float fwdX = sinYaw * cosPitch;
     float fwdY = cosYaw * cosPitch;
     float fwdZ = sinPitch;
+
+    // Right vector (horizontal strafe)
+    float rightX = cosYaw;
+    float rightY = -sinYaw;
+    float rightZ = 0.0f;
+
+    // Up vector = cross(right, forward)
+    float upX = -rightY * fwdZ;
+    float upY = rightX * fwdZ;
+    float upZ = rightX * fwdY - rightY * fwdX;
 
     float camPos[3] = { self.droneX, self.droneY, self.droneZ };
     float camTarget[3] = {
@@ -1546,7 +1551,58 @@ static NSString *get_vehicle_name(int modelId) {
         self.droneZ + fwdZ * 25.0f
     };
 
+    uint8_t activeIdx = *(uint8_t *)(cam + 0x5f);
+    if (activeIdx > 2) activeIdx = 0;
+    uintptr_t activeCam = cam + (uintptr_t)activeIdx * 0x228;
+
+    // 1. Force CCam mode to FIXED (14)
+    *(int16_t *)(activeCam + 0x186) = 14;
+    *(int16_t *)(cam + 0xc64) = 14;
+    *(int32_t *)(cam + 0xb4) = 1;          // whoTakesControl = 1 (SCRIPT)
+    *(uint16_t *)(cam + 0x31) = 0x100;
+    *(uint8_t *)(cam + 0x36) = 1;
+    *(uint8_t *)(cam + 0x38) = 1;          // Trigger script cam update in CCamera::Process
+    *(int16_t *)(cam + 0xc68) = 2;         // JUMP_CUT
+    *(uint8_t *)(cam + 0x54) = 0;
+
+    // 2. Direct memory update into activeCam struct
+    *(float *)(activeCam + 0x2b0) = camPos[0];
+    *(float *)(activeCam + 0x2b4) = camPos[1];
+    *(float *)(activeCam + 0x2b8) = camPos[2];
+
+    *(float *)(activeCam + 0x2bc) = fwdX;
+    *(float *)(activeCam + 0x2c0) = fwdY;
+    *(float *)(activeCam + 0x2c4) = fwdZ;
+
+    *(float *)(activeCam + 0x2c8) = upX;
+    *(float *)(activeCam + 0x2cc) = upY;
+    *(float *)(activeCam + 0x2d0) = upZ;
+
+    // Set FOV in activeCam
+    *(float *)(activeCam + 0x8c) = self.currentFOV;
+    *(float *)(activeCam + 0x90) = self.currentFOV;
+    *(float *)(activeCam + 0x94) = self.currentFOV;
+
+    // 3. Engine fixed pos & target buffers
     camera_set_fixed_pos(camPos, camTarget);
+    camera_take_control(camTarget, 2);
+
+    // 4. Update TheCamera.m_mCameraMatrix directly for instantaneous 60fps render
+    *(float *)(cam + 0x9a0) = camPos[0];
+    *(float *)(cam + 0x9a4) = camPos[1];
+    *(float *)(cam + 0x9a8) = camPos[2];
+
+    *(float *)(cam + 0x980) = fwdX;
+    *(float *)(cam + 0x984) = fwdY;
+    *(float *)(cam + 0x988) = fwdZ;
+
+    *(float *)(cam + 0x970) = rightX;
+    *(float *)(cam + 0x974) = rightY;
+    *(float *)(cam + 0x978) = rightZ;
+
+    *(float *)(cam + 0x990) = upX;
+    *(float *)(cam + 0x994) = upY;
+    *(float *)(cam + 0x998) = upZ;
 }
 
 @end

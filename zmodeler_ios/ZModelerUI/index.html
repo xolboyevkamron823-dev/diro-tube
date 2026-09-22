@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Diro 3D Studio - ZModeler iOS</title>
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+    <!-- 3D Viewport -->
+    <div id="viewport-container"></div>
+
+    <!-- Hidden native file input -->
+    <input type="file" id="dff-file-input" accept=".dff" style="display: none;">
+
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+        <div class="brand">
+            <img src="logo.png" alt="Diro Logo" style="width: 28px; height: 28px; border-radius: 6px;">
+            <span class="brand-badge">DIRO 3D</span>
+            <span>ZModeler iOS</span>
+        </div>
+        <div class="nav-actions">
+            <button class="btn btn-secondary" id="btn-open-file">📂 Ochish</button>
+            <button class="btn btn-success" id="btn-export-dff">💾 Eksport</button>
+            <button class="btn btn-secondary btn-icon" id="btn-toggle-hierarchy" title="Ierarxiya">📋</button>
+            <button class="btn btn-secondary btn-icon" id="btn-toggle-inspector" title="Sozlamalar">⚙️</button>
+        </div>
+    </header>
+
+    <!-- Viewport Floating Toolbar -->
+    <div class="view-toolbar">
+        <button class="tool-btn" id="btn-toggle-wireframe" title="To'rli rejim (Wireframe)">🕸️</button>
+        <button class="tool-btn active" id="btn-toggle-dummies" title="Dummylarni ko'rsatish">📍</button>
+        <button class="tool-btn" id="btn-reset-cam" title="Kamerani to'g'rilash">🎯</button>
+    </div>
+
+    <!-- Bottom Gizmo Mode Selector -->
+    <div class="gizmo-bar">
+        <button class="gizmo-btn active" data-mode="translate">↔️ Surish</button>
+        <button class="gizmo-btn" data-mode="rotate">🔄 Burish</button>
+        <button class="gizmo-btn" data-mode="scale">🔍 O'lcham</button>
+    </div>
+
+    <!-- Left Drawer: Hierarchy (Daraxt / Qismlar) -->
+    <div class="drawer drawer-left collapsed" id="drawer-hierarchy">
+        <div class="drawer-header">
+            <div class="drawer-title">📋 Mashina Qismlari</div>
+            <button class="drawer-close" id="btn-close-hierarchy">✕</button>
+        </div>
+        <div class="drawer-body">
+            <input type="text" class="search-box" id="hierarchy-search" placeholder="Qismni qidirish (wheel, light, door...)">
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary" style="flex: 1; font-size: 12px; height: 32px;" id="btn-add-dummy">➕ Dummy qo'shish</button>
+            </div>
+            <div class="node-list" id="hierarchy-list">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Drawer: Inspector & Quick Tuning -->
+    <div class="drawer drawer-right collapsed" id="drawer-inspector">
+        <div class="drawer-header">
+            <div class="drawer-title" id="inspector-title">⚙️ Xususiyatlar</div>
+            <button class="drawer-close" id="btn-close-inspector">✕</button>
+        </div>
+        <div class="drawer-body">
+            <!-- Tabs -->
+            <div class="tab-row">
+                <button class="tab-btn active" data-tab="coords">Koordinata</button>
+                <button class="tab-btn" data-tab="tuning">🚀 Tyuning</button>
+            </div>
+
+            <!-- Tab 1: Coordinates -->
+            <div id="tab-coords" class="tab-content" style="display: flex; flex-direction: column; gap: 12px;">
+                <div class="card">
+                    <div class="card-title">Qism nomi</div>
+                    <input type="text" class="search-box" id="input-node-name" style="height: 32px;">
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Pozitsiya (Joylashuv)</div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-x">X</span>
+                        <input type="number" step="0.01" class="coord-input" id="pos-x" value="0.000">
+                        <button class="step-btn" id="btn-pos-x-minus">-</button>
+                        <button class="step-btn" id="btn-pos-x-plus">+</button>
+                    </div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-y">Y</span>
+                        <input type="number" step="0.01" class="coord-input" id="pos-y" value="0.000">
+                        <button class="step-btn" id="btn-pos-y-minus">-</button>
+                        <button class="step-btn" id="btn-pos-y-plus">+</button>
+                    </div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-z">Z</span>
+                        <input type="number" step="0.01" class="coord-input" id="pos-z" value="0.000">
+                        <button class="step-btn" id="btn-pos-z-minus">-</button>
+                        <button class="step-btn" id="btn-pos-z-plus">+</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Aylanish (Burchak)</div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-x">X</span>
+                        <input type="number" step="1" class="coord-input" id="rot-x" value="0.0">
+                        <button class="step-btn" id="btn-rot-x-minus">-</button>
+                        <button class="step-btn" id="btn-rot-x-plus">+</button>
+                    </div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-y">Y</span>
+                        <input type="number" step="1" class="coord-input" id="rot-y" value="0.0">
+                        <button class="step-btn" id="btn-rot-y-minus">-</button>
+                        <button class="step-btn" id="btn-rot-y-plus">+</button>
+                    </div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-z">Z</span>
+                        <input type="number" step="1" class="coord-input" id="rot-z" value="0.0">
+                        <button class="step-btn" id="btn-rot-z-minus">-</button>
+                        <button class="step-btn" id="btn-rot-z-plus">+</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Masshtab (O'lcham)</div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-x">X</span>
+                        <input type="number" step="0.05" class="coord-input" id="scale-x" value="1.000">
+                        <button class="step-btn" id="btn-scale-x-minus">-</button>
+                        <button class="step-btn" id="btn-scale-x-plus">+</button>
+                    </div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-y">Y</span>
+                        <input type="number" step="0.05" class="coord-input" id="scale-y" value="1.000">
+                        <button class="step-btn" id="btn-scale-y-minus">-</button>
+                        <button class="step-btn" id="btn-scale-y-plus">+</button>
+                    </div>
+                    <div class="coord-grid">
+                        <span class="coord-label label-z">Z</span>
+                        <input type="number" step="0.05" class="coord-input" id="scale-z" value="1.000">
+                        <button class="step-btn" id="btn-scale-z-minus">-</button>
+                        <button class="step-btn" id="btn-scale-z-plus">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Quick Tuning (Tezkor Tyuning) -->
+            <div id="tab-tuning" class="tab-content" style="display: none; flex-direction: column; gap: 14px;">
+                <div class="card">
+                    <div class="card-title">🚗 Posadka (Pasaytirish / Ko'tarish)</div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Balandlik:</span>
+                            <span class="slider-val" id="val-posadka">0 sm</span>
+                        </div>
+                        <input type="range" id="slider-posadka" min="-30" max="30" value="0" step="1">
+                        <span style="font-size: 11px; color: var(--text-muted);">G'ildirak dummylari avtomatik moslashadi</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">📐 Razval (Camber)</div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Qiyalik burchagi:</span>
+                            <span class="slider-val" id="val-camber">0°</span>
+                        </div>
+                        <input type="range" id="slider-camber" min="-15" max="15" value="0" step="0.5">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🔘 Diska Kattaligi (Wheel Scale)</div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Masshtab:</span>
+                            <span class="slider-val" id="val-scale">1.00x</span>
+                        </div>
+                        <input type="range" id="slider-scale" min="0.6" max="1.6" value="1.0" step="0.05">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Welcome Overlay -->
+    <div class="welcome-overlay" id="welcome-overlay">
+        <div class="welcome-card">
+            <img src="logo.png" alt="Diro Logo" style="width: 80px; height: 80px; border-radius: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+            <div class="welcome-title">Diro 3D Studio</div>
+            <div class="welcome-desc">
+                iOS uchun ZModeler / SA File Editor muqobili.<br>
+                GTA San Andreas <code>.dff</code> 3D modellarini oching, qismlarini tahrirlang, posadka bering va saqlang!
+            </div>
+            <button class="btn btn-primary" style="width: 100%; height: 44px; font-size: 15px;" onclick="document.getElementById('btn-open-file').click();">
+                📂 DFF Modelni Ochish
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">Xabar</div>
+
+    <!-- Libraries (Local, 100% Offline) -->
+    <script src="three.min.js"></script>
+    <script src="OrbitControls.js"></script>
+    <script src="TransformControls.js"></script>
+    <script src="RenderWare.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

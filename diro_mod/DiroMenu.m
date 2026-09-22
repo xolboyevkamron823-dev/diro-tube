@@ -1013,6 +1013,7 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, strong) UIButton *zoomMinusBtn;
 @property (nonatomic, strong) UIButton *zoomPlusBtn;
 @property (nonatomic, strong) UILabel *fovLabel;
+@property (nonatomic, strong) UIButton *orientationBtn;
 @property (nonatomic, strong) UIButton *freezeBtn;
 @property (nonatomic, strong) UIButton *teleportBtn;
 @property (nonatomic, strong) UIButton *hideHudBtn;
@@ -1037,6 +1038,7 @@ static NSString *get_vehicle_name(int modelId) {
 @property (nonatomic, assign) float elevInput;
 @property (nonatomic, assign) BOOL isWorldFrozen;
 @property (nonatomic, assign) BOOL isHudHidden;
+@property (nonatomic, assign) BOOL isPortraitMode;
 @property (nonatomic, assign) BOOL isActive;
 
 @property (nonatomic, copy) void (^onExitBlock)(void);
@@ -1056,6 +1058,7 @@ static NSString *get_vehicle_name(int modelId) {
         self.elevInput = 0.0f;
         self.isWorldFrozen = NO;
         self.isHudHidden = NO;
+        self.isPortraitMode = NO;
         self.isActive = NO;
 
         [self setupUI];
@@ -1202,6 +1205,20 @@ static NSString *get_vehicle_name(int modelId) {
     [self.topBar addSubview:self.zoomPlusBtn];
     x += 28 + gap;
 
+    // Orientation toggle (16:9 Landscape vs 9:16 Portrait)
+    self.orientationBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.orientationBtn.frame = CGRectMake(x, 6, 62, btnH);
+    self.orientationBtn.backgroundColor = [UIColor colorWithRed:0.16 green:0.16 blue:0.22 alpha:1.0];
+    self.orientationBtn.layer.cornerRadius = 5;
+    self.orientationBtn.layer.borderColor = [UIColor colorWithWhite:0.35 alpha:0.8].CGColor;
+    self.orientationBtn.layer.borderWidth = 0.8;
+    [self.orientationBtn setTitle:@"📐 16:9" forState:UIControlStateNormal];
+    [self.orientationBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.orientationBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
+    [self.orientationBtn addTarget:self action:@selector(orientationTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.topBar addSubview:self.orientationBtn];
+    x += 62 + gap;
+
     // Teleport
     self.teleportBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     self.teleportBtn.frame = CGRectMake(x, 6, 80, btnH);
@@ -1270,7 +1287,7 @@ static NSString *get_vehicle_name(int modelId) {
     CGFloat h = self.bounds.size.height;
     if (w <= 0 || h <= 0) return;
 
-    CGFloat tbW = MIN(520.0, w - 20.0);
+    CGFloat tbW = MIN(560.0, w - 16.0);
     self.topBar.frame = CGRectMake((w - tbW) / 2.0, 10.0, tbW, 40.0);
 
     self.miniRestoreBtn.frame = CGRectMake(w - 70.0, 12.0, 58.0, 32.0);
@@ -1346,6 +1363,20 @@ static NSString *get_vehicle_name(int modelId) {
         [self applyCameraToGame];
         [self showToast:[NSString stringWithFormat:@"🔍 Keng Burchak (Wide): %.0f°", self.currentFOV]];
     }
+}
+
+- (void)orientationTapped {
+    self.isPortraitMode = !self.isPortraitMode;
+    if (self.isPortraitMode) {
+        [self.orientationBtn setTitle:@"📱 9:16" forState:UIControlStateNormal];
+        [self.orientationBtn setTitleColor:[UIColor colorWithRed:1.00 green:0.80 blue:0.20 alpha:1.0] forState:UIControlStateNormal];
+        [self showToast:@"📱 Vertikal 9:16 rejim (TikTok / Reels format)!"];
+    } else {
+        [self.orientationBtn setTitle:@"📐 16:9" forState:UIControlStateNormal];
+        [self.orientationBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [self showToast:@"📐 Standart 16:9 Landshaft rejim (Normal gorizontal)!"];
+    }
+    [self applyCameraToGame];
 }
 
 - (void)freezeTapped {
@@ -1574,9 +1605,15 @@ static NSString *get_vehicle_name(int modelId) {
     *(float *)(activeCam + 0x2c0) = fwdY;
     *(float *)(activeCam + 0x2c4) = fwdZ;
 
-    *(float *)(activeCam + 0x2c8) = upX;
-    *(float *)(activeCam + 0x2cc) = upY;
-    *(float *)(activeCam + 0x2d0) = upZ;
+    if (self.isPortraitMode) {
+        *(float *)(activeCam + 0x2c8) = rightX;
+        *(float *)(activeCam + 0x2cc) = rightY;
+        *(float *)(activeCam + 0x2d0) = rightZ;
+    } else {
+        *(float *)(activeCam + 0x2c8) = upX;
+        *(float *)(activeCam + 0x2cc) = upY;
+        *(float *)(activeCam + 0x2d0) = upZ;
+    }
 
     // Set FOV in activeCam
     *(float *)(activeCam + 0x8c) = self.currentFOV;
@@ -1592,17 +1629,33 @@ static NSString *get_vehicle_name(int modelId) {
     *(float *)(cam + 0x9a4) = camPos[1];
     *(float *)(cam + 0x9a8) = camPos[2];
 
-    *(float *)(cam + 0x980) = fwdX;
-    *(float *)(cam + 0x984) = fwdY;
-    *(float *)(cam + 0x988) = fwdZ;
+    if (self.isPortraitMode) {
+        // 9:16 Vertical / Portrait Mode (Camera rolled 90 degrees for TikTok/Shorts)
+        *(float *)(cam + 0x970) = upX;
+        *(float *)(cam + 0x974) = upY;
+        *(float *)(cam + 0x978) = upZ;
 
-    *(float *)(cam + 0x970) = rightX;
-    *(float *)(cam + 0x974) = rightY;
-    *(float *)(cam + 0x978) = rightZ;
+        *(float *)(cam + 0x980) = -rightX;
+        *(float *)(cam + 0x984) = -rightY;
+        *(float *)(cam + 0x988) = -rightZ;
 
-    *(float *)(cam + 0x990) = upX;
-    *(float *)(cam + 0x994) = upY;
-    *(float *)(cam + 0x998) = upZ;
+        *(float *)(cam + 0x990) = fwdX;
+        *(float *)(cam + 0x994) = fwdY;
+        *(float *)(cam + 0x998) = fwdZ;
+    } else {
+        // 16:9 Standard Landscape Mode (Normal horizon, perfectly level!)
+        *(float *)(cam + 0x970) = rightX;
+        *(float *)(cam + 0x974) = rightY;
+        *(float *)(cam + 0x978) = rightZ;
+
+        *(float *)(cam + 0x980) = upX;
+        *(float *)(cam + 0x984) = upY;
+        *(float *)(cam + 0x988) = upZ;
+
+        *(float *)(cam + 0x990) = fwdX;
+        *(float *)(cam + 0x994) = fwdY;
+        *(float *)(cam + 0x998) = fwdZ;
+    }
 }
 
 @end

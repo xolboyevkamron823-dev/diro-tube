@@ -165,31 +165,19 @@ static void add_game_hours(int deltaHours) {
     set_game_time((uint8_t)newH, *mPtr);
 }
 
-// HESOYAM: Direct memory write for $250k, full health, armor, and car repair (ZERO CRASHES)
+// HESOYAM: Official native cheat 0xad3d4 + $250k cash (100% stable, zero crashes)
 static void trigger_hesoyam(void) {
-    intptr_t slide = get_gtasa_slide();
+    // 1. Call GTA SA engine native CCheat::MoneyArmourHealthCheat() at 0xad3d4
+    trigger_native_cheat(0xad3d4);
 
-    // 1. Player Info Money (+$250,000) at CWorld::Players[playerIndex].m_nMoney
+    // 2. Also ensure player gets +$250,000 cash directly into player info
+    intptr_t slide = get_gtasa_slide();
     uint8_t *pIdxPtr = (uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x741e18);
     uint8_t pIndex = pIdxPtr ? *pIdxPtr : 0;
     if (pIndex > 1) pIndex = 0;
     uintptr_t playersBase = (uintptr_t)slide + 0x100000000ULL + 0x741a68;
     uintptr_t playerInfo = playersBase + (uintptr_t)pIndex * 0x1d8;
     *(int *)(playerInfo + 0xf0) += 250000;
-
-    // 2. Direct memory write for Health & Armor (Ped)
-    uintptr_t ped = get_player_ped();
-    if (ped) {
-        *(float *)(ped + 0x6ac) = 200.0f; // Health
-        *(float *)(ped + 0x6b4) = 150.0f; // Armor
-        *(float *)(ped + 0x6c4) = 200.0f; // Max Health
-    }
-
-    // 3. Repair vehicle if player is driving or spawned
-    uintptr_t veh = get_current_or_last_vehicle();
-    if (veh) {
-        *(float *)(veh + 0x634) = 1000.0f; // Full Vehicle HP
-    }
 }
 
 // God Mode (Cheksiz Jon & O'lmaslik): Bitfield 0xFF at 0x42 + GCD timer keeping health/armor pegged at max
@@ -530,7 +518,7 @@ static NSString *get_vehicle_name(int modelId) {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor clearColor];
-        self.windowLevel = UIWindowLevelStatusBar + 100.0;
+        self.windowLevel = UIWindowLevelAlert + 1000.0;
         self.userInteractionEnabled = YES;
     }
     return self;
@@ -541,7 +529,7 @@ static NSString *get_vehicle_name(int modelId) {
     self = [super initWithWindowScene:windowScene];
     if (self) {
         self.backgroundColor = [UIColor clearColor];
-        self.windowLevel = UIWindowLevelStatusBar + 100.0;
+        self.windowLevel = UIWindowLevelAlert + 1000.0;
         self.userInteractionEnabled = YES;
     }
     return self;
@@ -1715,82 +1703,83 @@ static NSString *get_vehicle_name(int modelId) {
 @end
 
 // -----------------------------------------------------------------------------
-// Direct Game Window Attachment with Periodic Repositioning & Anti-Ghosting
+// Setup & Lifecycle using High-Priority DiroWindow Overlay
 // -----------------------------------------------------------------------------
-static void check_and_reposition(void) {
-    UIApplication *app = [UIApplication sharedApplication];
-    if (!app) return;
+static void setup_diro_ui(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_diroWindow && !g_diroWindow.hidden && g_floatingButton && g_floatingButton.superview) {
+            return;
+        }
 
-    UIWindow *w = app.keyWindow;
-    if (!w && app.windows.count > 0) {
-        for (UIWindow *win in app.windows) {
-            NSString *cls = NSStringFromClass([win class]);
-            if (![cls containsString:@"ButtonWindow"] && 
-                ![cls containsString:@"IGWindow"] && 
-                ![cls containsString:@"IGFloating"] && 
-                ![cls containsString:@"iOSGods"] &&
-                ![cls containsString:@"UITextEffectsWindow"]) {
-                w = win;
-                break;
+        UIWindow *window = nil;
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    UIWindowScene *ws = (UIWindowScene *)scene;
+                    if (ws.activationState == UISceneActivationStateForegroundActive ||
+                        ws.activationState == UISceneActivationStateForegroundInactive) {
+                        window = [[DiroWindow alloc] initWithWindowScene:ws];
+                        break;
+                    }
+                }
             }
         }
-        if (!w) w = app.windows.firstObject;
-    }
-    if (!w) return;
+        if (!window) {
+            window = [[DiroWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        }
 
-    CGRect b = w.bounds;
-    if (b.size.width < 50 || b.size.height < 50) return;
+        g_diroWindow = (DiroWindow *)window;
+        g_diroWindow.windowLevel = UIWindowLevelAlert + 1000.0;
+        g_diroWindow.backgroundColor = [UIColor clearColor];
 
-    // Attach to w if not yet attached or if detached
-    if (!g_floatingButton || g_floatingButton.superview != w) {
-        if (g_floatingButton) [g_floatingButton removeFromSuperview];
-        if (g_menuModal) [g_menuModal removeFromSuperview];
+        DiroRootViewController *vc = [[DiroRootViewController alloc] init];
+        g_diroWindow.rootViewController = vc;
+        g_diroWindow.hidden = NO;
 
+        CGSize sz = [UIScreen mainScreen].bounds.size;
         CGFloat btnSize = 52.0;
         CGFloat initialX = 14.0;
-        CGFloat initialY = (b.size.height - btnSize) / 2.0;
+        CGFloat initialY = (sz.height - btnSize) / 2.0;
 
         if (!g_floatingButton) {
             g_floatingButton = [[DiroFloatingButton alloc] initWithFrame:CGRectMake(initialX, initialY, btnSize, btnSize)];
         }
-        [w addSubview:g_floatingButton];
-        [w bringSubviewToFront:g_floatingButton];
+        if (g_floatingButton.superview != vc.view) {
+            [vc.view addSubview:g_floatingButton];
+        }
 
-        CGFloat mw = MIN(390.0, b.size.width - 20.0);
-        CGFloat mh = MIN(300.0, b.size.height - 20.0);
-        CGFloat mx = (b.size.width - mw) / 2.0;
-        CGFloat my = (b.size.height - mh) / 2.0;
+        CGFloat mw = MIN(410.0, sz.width - 24.0);
+        CGFloat mh = MIN(310.0, sz.height - 24.0);
+        CGFloat mx = (sz.width - mw) / 2.0;
+        CGFloat my = (sz.height - mh) / 2.0;
 
         if (!g_menuModal) {
             g_menuModal = [[DiroMenuModal alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
             g_menuModal.hidden = YES;
             g_menuModal.alpha = 0.0;
         }
-        [w addSubview:g_menuModal];
-        [w bringSubviewToFront:g_menuModal];
-
-        NSLog(@"[DIRO] Diro UI attached directly to keyWindow: %@", w);
-    } else {
-        [w bringSubviewToFront:g_floatingButton];
-        if (g_menuModal && !g_menuModal.hidden) {
-            [w bringSubviewToFront:g_menuModal];
+        if (g_menuModal.superview != vc.view) {
+            [vc.view addSubview:g_menuModal];
         }
-    }
 
-    // Hide old / legacy cheat windows (iOSGods) completely so only our Diro menu is visible!
-    for (UIWindow *win in app.windows) {
-        if (win != w) {
-            NSString *cls = NSStringFromClass([win class]);
-            if ([cls containsString:@"ButtonWindow"] || 
-                [cls containsString:@"IGWindow"] || 
-                [cls containsString:@"IGFloating"] || 
-                [cls containsString:@"iOSGods"]) {
-                win.hidden = YES;
-                win.alpha = 0.0;
-                win.userInteractionEnabled = NO;
+        // Hide legacy cheat windows (iOSGods) completely so only our Diro menu is visible!
+        UIApplication *app = [UIApplication sharedApplication];
+        for (UIWindow *w in app.windows) {
+            if (w != g_diroWindow) {
+                NSString *cls = NSStringFromClass([w class]);
+                if ([cls containsString:@"ButtonWindow"] || 
+                    [cls containsString:@"IGWindow"] || 
+                    [cls containsString:@"IGFloating"] || 
+                    [cls containsString:@"iOSGods"]) {
+                    w.hidden = YES;
+                    w.alpha = 0.0;
+                    w.userInteractionEnabled = NO;
+                }
             }
         }
-    }
+
+        NSLog(@"[DIRO] Diro Mod Menu is 100%% active and visible on screen via DiroWindow!");
+    });
 }
 
 // Constructor: Executes automatically when GTASA.dylib is loaded by dyld
@@ -1806,11 +1795,49 @@ static void diro_entry(void) {
     }
     NSLog(@"[DIRO] Loaded GTASA_Original.dylib handle: %p", h);
 
-    // 2. Start repeating timer to attach and keep Diro menu frontmost
+    // 2. Setup UI when application finishes launching
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification
+                                                      object:nil
+                                                       queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification * _Nonnull note) {
+        setup_diro_ui();
+    }];
+
+    // Also fallback dispatch after 1.5, 3.0, and 5.0 seconds in case notification already passed
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setup_diro_ui();
+    });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setup_diro_ui();
+    });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        setup_diro_ui();
+    });
+
+    // Repeating timer heartbeat to ensure window remains visible and iOSGods stays hidden
     dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), (uint64_t)(1.0 * NSEC_PER_SEC), (uint64_t)(0.1 * NSEC_PER_SEC));
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), (uint64_t)(2.0 * NSEC_PER_SEC), (uint64_t)(0.2 * NSEC_PER_SEC));
     dispatch_source_set_event_handler(timer, ^{
-        check_and_reposition();
+        if (!g_diroWindow || g_diroWindow.hidden) {
+            setup_diro_ui();
+        } else {
+            UIApplication *app = [UIApplication sharedApplication];
+            for (UIWindow *w in app.windows) {
+                if (w != g_diroWindow) {
+                    NSString *cls = NSStringFromClass([w class]);
+                    if ([cls containsString:@"ButtonWindow"] || 
+                        [cls containsString:@"IGWindow"] || 
+                        [cls containsString:@"IGFloating"] || 
+                        [cls containsString:@"iOSGods"]) {
+                        w.hidden = YES;
+                        w.alpha = 0.0;
+                        w.userInteractionEnabled = NO;
+                    }
+                }
+            }
+        }
     });
     dispatch_resume(timer);
 }

@@ -1,5 +1,5 @@
 /**
- * RenderWare DFF Binary Stream Parser & Serializer for GTA San Andreas (RW 3.6 / 3.4).
+ * RenderWare DFF & TXD Binary Stream Parser & Serializer for GTA San Andreas (RW 3.6 / 3.4).
  * Developed for Diro 3D Studio (ZModeler iOS).
  */
 
@@ -16,6 +16,8 @@ const RW_CHUNKS = {
     CLUMP: 0x0010,
     LIGHT: 0x0012,
     ATOMIC: 0x0014,
+    TEXTURENATIVE: 0x0015,
+    TEXDICTIONARY: 0x0016,
     GEOMETRYLIST: 0x001A,
     EFFECT2D: 0x001F,
     RIGHTTORENDER: 0x0025,
@@ -98,7 +100,7 @@ class BinaryReader {
     readBytes(length) {
         const slice = new Uint8Array(this.view.buffer, this.view.byteOffset + this.offset, length);
         this.offset += length;
-        return new Uint8Array(slice); // clone
+        return new Uint8Array(slice);
     }
 
     readHeader() {
@@ -282,7 +284,6 @@ class DFFModel {
             });
         }
 
-        // Now parse extensions for each frame
         for (let i = 0; i < numFrames; i++) {
             if (reader.offset >= end) break;
             const extHeader = reader.readHeader();
@@ -382,7 +383,6 @@ class DFFModel {
             triangles.push({ v1, v2, v3, matIndex });
         }
 
-        // Morph target
         const sphere = {
             x: reader.readFloat32(),
             y: reader.readFloat32(),
@@ -416,13 +416,12 @@ class DFFModel {
 
         reader.seek(structHeader.payloadEnd);
 
-        // MaterialList
         let materials = [];
         const matListHeader = reader.readHeader();
         if (matListHeader && matListHeader.type === RW_CHUNKS.MATERIALLIST) {
             const matStructHeader = reader.readHeader();
             const numMaterials = reader.readUint32();
-            reader.skip(numMaterials * 4); // material indices (-1)
+            reader.skip(numMaterials * 4);
 
             for (let i = 0; i < numMaterials; i++) {
                 const matH = reader.readHeader();
@@ -435,7 +434,7 @@ class DFFModel {
                     b: reader.readUint8(),
                     a: reader.readUint8()
                 };
-                reader.readUint32(); // unused
+                reader.readUint32();
                 const hasTexture = reader.readInt32();
                 const ambient = reader.readFloat32();
                 const specular = reader.readFloat32();
@@ -465,7 +464,6 @@ class DFFModel {
                     }
                 }
 
-                // Skip material extension
                 const matExt = reader.readHeader();
                 if (matExt && matExt.type === RW_CHUNKS.EXTENSION) {
                     reader.seek(matExt.payloadEnd);
@@ -484,7 +482,6 @@ class DFFModel {
             reader.seek(matListHeader.payloadEnd);
         }
 
-        // Geometry Extensions (BinMesh, etc.)
         let binMesh = null;
         let extensions = [];
         const geomExtH = reader.readHeader();
@@ -566,59 +563,68 @@ class DFFModel {
         reader.seek(end);
     }
 
+    mergeModel(otherDff, targetParentIndex = 0) {
+        const baseFrameIndex = this.frames.length;
+        const baseGeomIndex = this.geometries.length;
+
+        for (let i = 0; i < otherDff.frames.length; i++) {
+            const f = JSON.parse(JSON.stringify(otherDff.frames[i]));
+            f.index = baseFrameIndex + i;
+            if (f.parentIndex < 0) {
+                f.parentIndex = targetParentIndex;
+            } else {
+                f.parentIndex = baseFrameIndex + f.parentIndex;
+            }
+            this.frames.push(f);
+        }
+
+        for (let i = 0; i < otherDff.geometries.length; i++) {
+            const g = JSON.parse(JSON.stringify(otherDff.geometries[i]));
+            this.geometries.push(g);
+        }
+
+        for (let i = 0; i < otherDff.atomics.length; i++) {
+            const a = JSON.parse(JSON.stringify(otherDff.atomics[i]));
+            a.frameIndex = baseFrameIndex + a.frameIndex;
+            a.geometryIndex = baseGeomIndex + a.geometryIndex;
+            this.atomics.push(a);
+        }
+    }
+
     serialize() {
         const writer = new BinaryWriter();
         const libId = this.version;
 
-        // 1. Prepare FrameList binary buffer
         const frameListBuf = this.serializeFrameList(libId);
-
-        // 2. Prepare GeometryList binary buffer
         const geomListBuf = this.serializeGeometryList(libId);
-
-        // 3. Prepare Atomics binary buffer
         const atomicsBuf = this.serializeAtomics(libId);
 
-        // 4. Clump Struct
         const clumpStructBuf = new BinaryWriter();
         clumpStructBuf.writeUint32(this.atomics.length);
-        clumpStructBuf.writeUint32(0); // numLights
-        clumpStructBuf.writeUint32(0); // numCameras
+        clumpStructBuf.writeUint32(0);
+        clumpStructBuf.writeUint32(0);
         const clumpStructBytes = clumpStructBuf.getBuffer();
 
-        // 5. Clump Extension
         const clumpExtBuf = new BinaryWriter();
         for (const ext of this.clumpExtensions) {
             clumpExtBuf.writeBytes(ext);
         }
         const clumpExtBytes = clumpExtBuf.getBuffer();
 
-        // Calculate total Clump payload size
         const totalSize = (12 + clumpStructBytes.length) +
                           (12 + frameListBuf.length) +
                           (12 + geomListBuf.length) +
                           atomicsBuf.length +
                           (12 + clumpExtBytes.length);
 
-        // Write Root Clump Header
         writer.writeHeader(RW_CHUNKS.CLUMP, totalSize, libId);
-
-        // Write Clump Struct
         writer.writeHeader(RW_CHUNKS.STRUCT, clumpStructBytes.length, libId);
         writer.writeBytes(clumpStructBytes);
-
-        // Write FrameList
         writer.writeHeader(RW_CHUNKS.FRAMELIST, frameListBuf.length, libId);
         writer.writeBytes(frameListBuf);
-
-        // Write GeometryList
         writer.writeHeader(RW_CHUNKS.GEOMETRYLIST, geomListBuf.length, libId);
         writer.writeBytes(geomListBuf);
-
-        // Write Atomics
         writer.writeBytes(atomicsBuf);
-
-        // Write Clump Extension
         writer.writeHeader(RW_CHUNKS.EXTENSION, clumpExtBytes.length, libId);
         writer.writeBytes(clumpExtBytes);
 
@@ -627,8 +633,6 @@ class DFFModel {
 
     serializeFrameList(libId) {
         const writer = new BinaryWriter();
-
-        // FrameList Struct
         const numFrames = this.frames.length;
         const structSize = 4 + numFrames * 56;
         writer.writeHeader(RW_CHUNKS.STRUCT, structSize, libId);
@@ -646,14 +650,13 @@ class DFFModel {
             writer.writeUint32(f.matrixFlags || 0x00020003);
         }
 
-        // Frame Extensions
         for (let i = 0; i < numFrames; i++) {
             const f = this.frames[i];
             const extWriter = new BinaryWriter();
 
             if (f.name && f.name.length > 0) {
                 const nameBytes = new TextEncoder().encode(f.name);
-                const nameLen = nameBytes.length + 1; // null-terminated
+                const nameLen = nameBytes.length + 1;
                 extWriter.writeHeader(RW_CHUNKS.FRAMENAME, nameLen, libId);
                 extWriter.writeBytes(nameBytes);
                 extWriter.writeUint8(0);
@@ -676,8 +679,6 @@ class DFFModel {
 
     serializeGeometryList(libId) {
         const writer = new BinaryWriter();
-
-        // GeometryList Struct
         writer.writeHeader(RW_CHUNKS.STRUCT, 4, libId);
         writer.writeUint32(this.geometries.length);
 
@@ -693,14 +694,12 @@ class DFFModel {
     serializeGeometry(geom, libId) {
         const writer = new BinaryWriter();
 
-        // 1. Geometry Struct
         const structWriter = new BinaryWriter();
         structWriter.writeUint32(geom.formatFlags);
         structWriter.writeUint32(geom.numTriangles);
         structWriter.writeUint32(geom.numVertices);
-        structWriter.writeUint32(1); // numMorphTargets
+        structWriter.writeUint32(1);
 
-        // Prelit
         if ((geom.formatFlags & 0x0008) && geom.colors) {
             for (let i = 0; i < geom.numVertices; i++) {
                 const c = geom.colors[i] || { r: 255, g: 255, b: 255, a: 255 };
@@ -711,7 +710,6 @@ class DFFModel {
             }
         }
 
-        // TexCoords (all sets)
         if (geom.texCoordSets) {
             for (const set of geom.texCoordSets) {
                 for (let i = 0; i < geom.numVertices; i++) {
@@ -722,7 +720,6 @@ class DFFModel {
             }
         }
 
-        // Triangles
         for (let i = 0; i < geom.numTriangles; i++) {
             const t = geom.triangles[i];
             structWriter.writeUint16(t.v2);
@@ -731,7 +728,6 @@ class DFFModel {
             structWriter.writeUint16(t.v3);
         }
 
-        // MorphTarget (Sphere, Vertices, Normals)
         const sp = geom.sphere || { x: 0, y: 0, z: 0, radius: 1.0 };
         structWriter.writeFloat32(sp.x);
         structWriter.writeFloat32(sp.y);
@@ -763,12 +759,10 @@ class DFFModel {
         writer.writeHeader(RW_CHUNKS.STRUCT, structBytes.length, libId);
         writer.writeBytes(structBytes);
 
-        // 2. MaterialList
         const matListBytes = this.serializeMaterialList(geom.materials, libId);
         writer.writeHeader(RW_CHUNKS.MATERIALLIST, matListBytes.length, libId);
         writer.writeBytes(matListBytes);
 
-        // 3. Geometry Extension (BinMeshPLG)
         const extWriter = new BinaryWriter();
         if (geom.binMesh) {
             const bmWriter = new BinaryWriter();
@@ -805,7 +799,6 @@ class DFFModel {
         const writer = new BinaryWriter();
         const numMats = materials ? materials.length : 0;
 
-        // Struct
         const structSize = 4 + numMats * 4;
         writer.writeHeader(RW_CHUNKS.STRUCT, structSize, libId);
         writer.writeUint32(numMats);
@@ -813,7 +806,6 @@ class DFFModel {
             writer.writeInt32(-1);
         }
 
-        // Materials
         if (materials) {
             for (const mat of materials) {
                 const matBytes = this.serializeMaterial(mat, libId);
@@ -828,15 +820,14 @@ class DFFModel {
     serializeMaterial(mat, libId) {
         const writer = new BinaryWriter();
 
-        // Struct
         const structWriter = new BinaryWriter();
-        structWriter.writeUint32(0); // flags
+        structWriter.writeUint32(0);
         const col = mat.color || { r: 255, g: 255, b: 255, a: 255 };
         structWriter.writeUint8(col.r);
         structWriter.writeUint8(col.g);
         structWriter.writeUint8(col.b);
         structWriter.writeUint8(col.a);
-        structWriter.writeUint32(0); // unused
+        structWriter.writeUint32(0);
         structWriter.writeInt32(mat.hasTexture ? 1 : 0);
         structWriter.writeFloat32(mat.ambient || 1.0);
         structWriter.writeFloat32(mat.specular || 1.0);
@@ -846,29 +837,23 @@ class DFFModel {
         writer.writeHeader(RW_CHUNKS.STRUCT, structBytes.length, libId);
         writer.writeBytes(structBytes);
 
-        // Texture chunk
         if (mat.hasTexture) {
             const texWriter = new BinaryWriter();
-
-            // Texture Struct
             texWriter.writeHeader(RW_CHUNKS.STRUCT, 4, libId);
-            texWriter.writeUint32(0x1102); // filter flags
+            texWriter.writeUint32(0x1102);
 
-            // Texture Name
             const nameBytes = new TextEncoder().encode(mat.textureName || "");
             const nameLen = nameBytes.length + 1;
             texWriter.writeHeader(RW_CHUNKS.STRING, nameLen, libId);
             texWriter.writeBytes(nameBytes);
             texWriter.writeUint8(0);
 
-            // Alpha Mask Name
             const maskBytes = new TextEncoder().encode(mat.maskName || "");
             const maskLen = maskBytes.length + 1;
             texWriter.writeHeader(RW_CHUNKS.STRING, maskLen, libId);
             texWriter.writeBytes(maskBytes);
             texWriter.writeUint8(0);
 
-            // Texture Extension
             texWriter.writeHeader(RW_CHUNKS.EXTENSION, 0, libId);
 
             const texBytes = texWriter.getBuffer();
@@ -876,7 +861,6 @@ class DFFModel {
             writer.writeBytes(texBytes);
         }
 
-        // Material Extension
         writer.writeHeader(RW_CHUNKS.EXTENSION, 0, libId);
 
         return writer.getBuffer();
@@ -887,15 +871,12 @@ class DFFModel {
 
         for (const at of this.atomics) {
             const atWriter = new BinaryWriter();
-
-            // Struct
             atWriter.writeHeader(RW_CHUNKS.STRUCT, 16, libId);
             atWriter.writeUint32(at.frameIndex);
             atWriter.writeUint32(at.geometryIndex);
             atWriter.writeUint32(at.flags || 5);
             atWriter.writeUint32(at.unused || 0);
 
-            // Extension
             const extLen = at.extensions ? at.extensions.reduce((acc, e) => acc + e.length, 0) : 0;
             atWriter.writeHeader(RW_CHUNKS.EXTENSION, extLen, libId);
             if (at.extensions) {
@@ -913,6 +894,320 @@ class DFFModel {
     }
 }
 
+/**
+ * TXD (Texture Dictionary) Parser and DXT Decompressor
+ */
+class TXDParser {
+    static parse(arrayBuffer) {
+        const view = new DataView(arrayBuffer);
+        let offset = 0;
+
+        function readHeader() {
+            if (offset + 12 > view.byteLength) return null;
+            const type = view.getUint32(offset, true);
+            const size = view.getUint32(offset + 4, true);
+            const libId = view.getUint32(offset + 8, true);
+            offset += 12;
+            return { type, size, libId, payloadStart: offset, payloadEnd: offset + size };
+        }
+
+        const rootH = readHeader();
+        if (!rootH || rootH.type !== RW_CHUNKS.TEXDICTIONARY) {
+            throw new Error("Fayl RenderWare TXD emas!");
+        }
+
+        const structH = readHeader();
+        const numTextures = view.getUint16(offset, true);
+        offset = structH.payloadEnd;
+
+        const textures = {};
+
+        for (let i = 0; i < numTextures; i++) {
+            if (offset >= rootH.payloadEnd) break;
+            const texH = readHeader();
+            if (!texH || texH.type !== RW_CHUNKS.TEXTURENATIVE) break;
+
+            const texStructH = readHeader();
+            offset += 8;
+
+            let name = "";
+            for (let c = 0; c < 32; c++) {
+                const b = view.getUint8(offset + c);
+                if (b === 0) break;
+                name += String.fromCharCode(b);
+            }
+            offset += 32;
+
+            let maskName = "";
+            for (let c = 0; c < 32; c++) {
+                const b = view.getUint8(offset + c);
+                if (b === 0) break;
+                maskName += String.fromCharCode(b);
+            }
+            offset += 32;
+
+            const rasterFormat = view.getUint32(offset, true);
+            offset += 4;
+
+            let dxtStr = "";
+            for (let d = 0; d < 4; d++) {
+                dxtStr += String.fromCharCode(view.getUint8(offset + d));
+            }
+            offset += 4;
+
+            const width = view.getUint16(offset, true);
+            const height = view.getUint16(offset + 2, true);
+            const depth = view.getUint8(offset + 4);
+            const numMipmaps = view.getUint8(offset + 5);
+            offset += 8;
+
+            const dataSize = view.getUint32(offset, true);
+            offset += 4;
+
+            const pixelData = new Uint8Array(arrayBuffer, offset, dataSize);
+            offset += dataSize;
+
+            for (let m = 1; m < numMipmaps; m++) {
+                if (offset + 4 > view.byteLength) break;
+                const mipSize = view.getUint32(offset, true);
+                offset += 4 + mipSize;
+            }
+
+            if (offset < texH.payloadEnd) {
+                const extH = readHeader();
+                if (extH) offset = extH.payloadEnd;
+            }
+
+            textures[name.toLowerCase()] = {
+                name,
+                maskName,
+                width,
+                height,
+                depth,
+                dxt: dxtStr.trim(),
+                dataSize,
+                pixelData
+            };
+        }
+
+        return textures;
+    }
+
+    static decodeToRGBA(texObj) {
+        if (texObj.dxt === 'DXT1') {
+            return this.decodeDXT1(texObj.pixelData, texObj.width, texObj.height);
+        } else if (texObj.dxt === 'DXT3') {
+            return this.decodeDXT3(texObj.pixelData, texObj.width, texObj.height);
+        } else if (texObj.dxt === 'DXT5') {
+            return this.decodeDXT5(texObj.pixelData, texObj.width, texObj.height);
+        } else {
+            // Uncompressed 32-bit BGRA or RGBA
+            const rgba = new Uint8ClampedArray(texObj.width * texObj.height * 4);
+            const data = texObj.pixelData;
+            for (let i = 0; i < rgba.length; i += 4) {
+                rgba[i] = data[i + 2];     // R
+                rgba[i + 1] = data[i + 1]; // G
+                rgba[i + 2] = data[i];     // B
+                rgba[i + 3] = data[i + 3]; // A
+            }
+            return rgba;
+        }
+    }
+
+    static decodeDXT1(data, width, height) {
+        const rgba = new Uint8ClampedArray(width * height * 4);
+        let dataOffset = 0;
+        const blocksX = Math.max(1, Math.floor((width + 3) / 4));
+        const blocksY = Math.max(1, Math.floor((height + 3) / 4));
+
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                if (dataOffset + 8 > data.length) break;
+
+                const c0 = data[dataOffset] | (data[dataOffset + 1] << 8);
+                const c1 = data[dataOffset + 2] | (data[dataOffset + 3] << 8);
+                const code = data[dataOffset + 4] | (data[dataOffset + 5] << 8) | (data[dataOffset + 6] << 16) | (data[dataOffset + 7] << 24);
+                dataOffset += 8;
+
+                const r0 = ((c0 >> 11) & 0x1f) * 255 / 31;
+                const g0 = ((c0 >> 5) & 0x3f) * 255 / 63;
+                const b0 = (c0 & 0x1f) * 255 / 31;
+
+                const r1 = ((c1 >> 11) & 0x1f) * 255 / 31;
+                const g1 = ((c1 >> 5) & 0x3f) * 255 / 63;
+                const b1 = (c1 & 0x1f) * 255 / 31;
+
+                for (let py = 0; py < 4; py++) {
+                    for (let px = 0; px < 4; px++) {
+                        const x = bx * 4 + px;
+                        const y = by * 4 + py;
+                        if (x < width && y < height) {
+                            const bitIdx = (py * 4 + px) * 2;
+                            const idx = (code >> bitIdx) & 0x03;
+                            let r, g, b, a = 255;
+
+                            if (c0 > c1) {
+                                if (idx === 0) { r = r0; g = g0; b = b0; }
+                                else if (idx === 1) { r = r1; g = g1; b = b1; }
+                                else if (idx === 2) { r = (2 * r0 + r1) / 3; g = (2 * g0 + g1) / 3; b = (2 * b0 + b1) / 3; }
+                                else { r = (r0 + 2 * r1) / 3; g = (g0 + 2 * g1) / 3; b = (b0 + 2 * b1) / 3; }
+                            } else {
+                                if (idx === 0) { r = r0; g = g0; b = b0; }
+                                else if (idx === 1) { r = r1; g = g1; b = b1; }
+                                else if (idx === 2) { r = (r0 + r1) / 2; g = (g0 + g1) / 2; b = (b0 + b1) / 2; }
+                                else { r = 0; g = 0; b = 0; a = 0; }
+                            }
+
+                            const destIdx = (y * width + x) * 4;
+                            rgba[destIdx] = Math.round(r);
+                            rgba[destIdx + 1] = Math.round(g);
+                            rgba[destIdx + 2] = Math.round(b);
+                            rgba[destIdx + 3] = a;
+                        }
+                    }
+                }
+            }
+        }
+        return rgba;
+    }
+
+    static decodeDXT3(data, width, height) {
+        const rgba = new Uint8ClampedArray(width * height * 4);
+        let dataOffset = 0;
+        const blocksX = Math.max(1, Math.floor((width + 3) / 4));
+        const blocksY = Math.max(1, Math.floor((height + 3) / 4));
+
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                if (dataOffset + 16 > data.length) break;
+
+                const alphaBytes = data.slice(dataOffset, dataOffset + 8);
+                dataOffset += 8;
+
+                const c0 = data[dataOffset] | (data[dataOffset + 1] << 8);
+                const c1 = data[dataOffset + 2] | (data[dataOffset + 3] << 8);
+                const code = data[dataOffset + 4] | (data[dataOffset + 5] << 8) | (data[dataOffset + 6] << 16) | (data[dataOffset + 7] << 24);
+                dataOffset += 8;
+
+                const r0 = ((c0 >> 11) & 0x1f) * 255 / 31;
+                const g0 = ((c0 >> 5) & 0x3f) * 255 / 63;
+                const b0 = (c0 & 0x1f) * 255 / 31;
+
+                const r1 = ((c1 >> 11) & 0x1f) * 255 / 31;
+                const g1 = ((c1 >> 5) & 0x3f) * 255 / 63;
+                const b1 = (c1 & 0x1f) * 255 / 31;
+
+                for (let py = 0; py < 4; py++) {
+                    for (let px = 0; px < 4; px++) {
+                        const x = bx * 4 + px;
+                        const y = by * 4 + py;
+                        if (x < width && y < height) {
+                            const bitIdx = (py * 4 + px) * 2;
+                            const idx = (code >> bitIdx) & 0x03;
+                            let r, g, b;
+
+                            if (idx === 0) { r = r0; g = g0; b = b0; }
+                            else if (idx === 1) { r = r1; g = g1; b = b1; }
+                            else if (idx === 2) { r = (2 * r0 + r1) / 3; g = (2 * g0 + g1) / 3; b = (2 * b0 + b1) / 3; }
+                            else { r = (r0 + 2 * r1) / 3; g = (g0 + 2 * g1) / 3; b = (b0 + 2 * b1) / 3; }
+
+                            const pixelIndex = py * 4 + px;
+                            const alphaByte = alphaBytes[Math.floor(pixelIndex / 2)];
+                            const a4 = (pixelIndex % 2 === 0) ? (alphaByte & 0x0F) : ((alphaByte >> 4) & 0x0F);
+                            const a = Math.round(a4 * 255 / 15);
+
+                            const destIdx = (y * width + x) * 4;
+                            rgba[destIdx] = Math.round(r);
+                            rgba[destIdx + 1] = Math.round(g);
+                            rgba[destIdx + 2] = Math.round(b);
+                            rgba[destIdx + 3] = a;
+                        }
+                    }
+                }
+            }
+        }
+        return rgba;
+    }
+
+    static decodeDXT5(data, width, height) {
+        const rgba = new Uint8ClampedArray(width * height * 4);
+        let dataOffset = 0;
+        const blocksX = Math.max(1, Math.floor((width + 3) / 4));
+        const blocksY = Math.max(1, Math.floor((height + 3) / 4));
+
+        for (let by = 0; by < blocksY; by++) {
+            for (let bx = 0; bx < blocksX; bx++) {
+                if (dataOffset + 16 > data.length) break;
+
+                const a0 = data[dataOffset];
+                const a1 = data[dataOffset + 1];
+                const aBits = data[dataOffset + 2] | (data[dataOffset + 3] << 8) | (data[dataOffset + 4] << 16);
+                const aBits2 = data[dataOffset + 5] | (data[dataOffset + 6] << 8) | (data[dataOffset + 7] << 16);
+                dataOffset += 8;
+
+                const alphas = [a0, a1];
+                if (a0 > a1) {
+                    for (let i = 1; i <= 6; i++) {
+                        alphas.push(Math.round(((7 - i) * a0 + i * a1) / 7));
+                    }
+                } else {
+                    for (let i = 1; i <= 4; i++) {
+                        alphas.push(Math.round(((5 - i) * a0 + i * a1) / 5));
+                    }
+                    alphas.push(0);
+                    alphas.push(255);
+                }
+
+                const c0 = data[dataOffset] | (data[dataOffset + 1] << 8);
+                const c1 = data[dataOffset + 2] | (data[dataOffset + 3] << 8);
+                const code = data[dataOffset + 4] | (data[dataOffset + 5] << 8) | (data[dataOffset + 6] << 16) | (data[dataOffset + 7] << 24);
+                dataOffset += 8;
+
+                const r0 = ((c0 >> 11) & 0x1f) * 255 / 31;
+                const g0 = ((c0 >> 5) & 0x3f) * 255 / 63;
+                const b0 = (c0 & 0x1f) * 255 / 31;
+
+                const r1 = ((c1 >> 11) & 0x1f) * 255 / 31;
+                const g1 = ((c1 >> 5) & 0x3f) * 255 / 63;
+                const b1 = (c1 & 0x1f) * 255 / 31;
+
+                for (let py = 0; py < 4; py++) {
+                    for (let px = 0; px < 4; px++) {
+                        const x = bx * 4 + px;
+                        const y = by * 4 + py;
+                        if (x < width && y < height) {
+                            const pIdx = py * 4 + px;
+                            const bitIdx = pIdx * 2;
+                            const idx = (code >> bitIdx) & 0x03;
+                            let r, g, b;
+
+                            if (idx === 0) { r = r0; g = g0; b = b0; }
+                            else if (idx === 1) { r = r1; g = g1; b = b1; }
+                            else if (idx === 2) { r = (2 * r0 + r1) / 3; g = (2 * g0 + g1) / 3; b = (2 * b0 + b1) / 3; }
+                            else { r = (r0 + 2 * r1) / 3; g = (g0 + 2 * g1) / 3; b = (b0 + 2 * b1) / 3; }
+
+                            let aIdx = 0;
+                            if (pIdx < 8) {
+                                aIdx = (aBits >> (pIdx * 3)) & 0x07;
+                            } else {
+                                aIdx = (aBits2 >> ((pIdx - 8) * 3)) & 0x07;
+                            }
+                            const a = alphas[aIdx];
+
+                            const destIdx = (y * width + x) * 4;
+                            rgba[destIdx] = Math.round(r);
+                            rgba[destIdx + 1] = Math.round(g);
+                            rgba[destIdx + 2] = Math.round(b);
+                            rgba[destIdx + 3] = a;
+                        }
+                    }
+                }
+            }
+        }
+        return rgba;
+    }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { DFFModel, RW_CHUNKS, BinaryReader, BinaryWriter };
+    module.exports = { DFFModel, TXDParser, RW_CHUNKS, BinaryReader, BinaryWriter };
 }

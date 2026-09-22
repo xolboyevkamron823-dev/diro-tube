@@ -23,8 +23,6 @@
 @end
 
 @class DiroDroneOverlayView;
-static BOOL g_droneActive = NO;
-static void hook_ios_tick(void);
 static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
@@ -240,8 +238,7 @@ static void camera_take_control(const float target[3], int16_t switchType) {
     // Direct memory flags to lock camera under script/drone control
     *(int32_t *)(cam + 0xb4) = 1;           // whoTakesControl = 1 (SCRIPT)
     *(int16_t *)(cam + 0xc64) = 15;         // MODE 15 (Point at Target)
-    *(uint8_t *)(cam + 0x31) = 0;           // MUST BE 0 to allow roll angle rotation!
-    *(uint8_t *)(cam + 0x32) = 0;
+    *(uint16_t *)(cam + 0x31) = 0x100;
     *(uint8_t *)(cam + 0x36) = 1;           // Request cam switch
     *(uint8_t *)(cam + 0x38) = 1;           // Trigger script cam update in CCamera::Process
     *(int16_t *)(cam + 0xc68) = switchType; // 2 = JUMP_CUT
@@ -298,10 +295,46 @@ static void camera_restore(void) {
         fn(cam);
     }
     *(int32_t *)(cam + 0xb4) = 0;
-    *(uint8_t *)(cam + 0x31) = 0;
-    *(uint8_t *)(cam + 0x32) = 0;
+    *(uint16_t *)(cam + 0x31) = 0;
     *(uint8_t *)(cam + 0x36) = 1;
     *(uint8_t *)(cam + 0x38) = 0;
+}
+
+static UIView *get_game_view(void) {
+    UIApplication *app = [UIApplication sharedApplication];
+    for (UIWindow *w in app.windows) {
+        if (w != g_diroWindow && ![w isKindOfClass:NSClassFromString(@"DiroWindow")]) {
+            NSString *cls = NSStringFromClass([w class]);
+            if ([cls containsString:@"ButtonWindow"] || 
+                [cls containsString:@"IGWindow"] || 
+                [cls containsString:@"IGFloating"] || 
+                [cls containsString:@"iOSGods"]) {
+                continue;
+            }
+            UIViewController *rvc = w.rootViewController;
+            if (rvc && rvc.view) {
+                return rvc.view;
+            }
+            if (w.subviews.count > 0) {
+                return w.subviews[0];
+            }
+            return w;
+        }
+    }
+    return nil;
+}
+
+static void set_game_rotation(float angle) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIView *gv = get_game_view();
+        if (gv) {
+            if (fabsf(angle) < 0.001f) {
+                gv.transform = CGAffineTransformIdentity;
+            } else {
+                gv.transform = CGAffineTransformMakeRotation(angle);
+            }
+        }
+    });
 }
 
 static void set_game_hud_visible(BOOL visible) {
@@ -311,15 +344,7 @@ static void set_game_hud_visible(BOOL visible) {
 
     uintptr_t cam = get_the_camera();
     if (cam) {
-        if (visible) {
-            void (*showHudFn)(uintptr_t) = (void(*)(uintptr_t))((uintptr_t)slide + 0x100000000ULL + 0x13a828);
-            if (showHudFn) showHudFn(cam);
-            *(uint16_t *)(cam + 0x42) = 0x100;
-        } else {
-            void (*hideHudFn)(uintptr_t) = (void(*)(uintptr_t))((uintptr_t)slide + 0x100000000ULL + 0x13360c);
-            if (hideHudFn) hideHudFn(cam);
-            *(uint16_t *)(cam + 0x42) = 0;
-        }
+        *(uint16_t *)(cam + 0x42) = visible ? 0x100 : 0;
     }
 }
 
@@ -1607,6 +1632,7 @@ static NSString *get_vehicle_name(int modelId) {
         [self.btn916 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     }
 
+    set_game_rotation(self.rollAngle);
     [self applyCameraToGame];
 }
 
@@ -1661,15 +1687,10 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)startDroneFlight {
     self.isActive = YES;
-    g_droneActive = YES;
-    g_droneOverlay = self;
     if (g_floatingButton) g_floatingButton.hidden = YES;
 
-    // Full GTA SA native HUD and mobile controls off
+    // Hide GTA SA native HUD & mobile buttons
     set_game_hud_visible(NO);
-
-    // Install tick hook
-    hook_ios_tick();
 
     uintptr_t cam = get_the_camera();
     uintptr_t ped = get_player_ped();
@@ -1739,10 +1760,6 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)stopDroneFlight {
     self.isActive = NO;
-    g_droneActive = NO;
-    if (g_droneOverlay == self) {
-        g_droneOverlay = nil;
-    }
 
     if (self.displayLink) {
         [self.displayLink invalidate];
@@ -1758,12 +1775,16 @@ static NSString *get_vehicle_name(int modelId) {
     camera_set_fov(70.0f);
     camera_restore();
 
-    // Restore full GTA SA native HUD and mobile controls
+    // Restore GTA SA native HUD & mobile buttons
     set_game_hud_visible(YES);
+
+    // Reset game view rotation to 16:9 standard landscape
+    set_game_rotation(0.0f);
 }
 
 - (void)exitTapped {
     [self stopDroneFlight];
+    set_game_rotation(0.0f);
     if (g_floatingButton) g_floatingButton.hidden = NO;
     [self removeFromSuperview];
     if (self.onExitBlock) {
@@ -1773,10 +1794,6 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)onFrameUpdate:(CADisplayLink *)link {
     if (!self.isActive) return;
-
-    // Enforce GTA SA mobile widgets & HUD hidden during flight
-    intptr_t slide = get_gtasa_slide();
-    *(uint8_t *)((uintptr_t)slide + 0x100000000ULL + 0x4e333c) = 0;
 
     float dt = (link.duration > 0.001) ? (float)link.duration : (1.0f / 60.0f);
     if (dt > 0.1f) dt = 1.0f / 60.0f;
@@ -1823,7 +1840,6 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)applyCameraToGame {
     uintptr_t cam = get_the_camera();
     if (!cam) return;
-    intptr_t slide = get_gtasa_slide();
 
     float cosPitch = cosf(self.pitch);
     float sinPitch = sinf(self.pitch);
@@ -1842,17 +1858,9 @@ static NSString *get_vehicle_name(int modelId) {
 
     // 3. Base Up vector = cross(baseRight, fwd)
     // cross(A, B): (Ay*Bz - Az*By, Az*Bx - Ax*Bz, Ax*By - Ay*Bx)
-    float baseUpX = baseRightY * fwdZ - baseRightZ * fwdY;
-    float baseUpY = baseRightZ * fwdX - baseRightX * fwdZ;
+    float baseUpX = baseRightY * fwdZ;
+    float baseUpY = -baseRightX * fwdZ;
     float baseUpZ = baseRightX * fwdY - baseRightY * fwdX;
-
-    // Normalize baseUp
-    float lenUp = sqrtf(baseUpX * baseUpX + baseUpY * baseUpY + baseUpZ * baseUpZ);
-    if (lenUp > 0.0001f) {
-        baseUpX /= lenUp;
-        baseUpY /= lenUp;
-        baseUpZ /= lenUp;
-    }
 
     // 4. Continuous roll rotation around look axis (fwd) by self.rollAngle
     float cosR = cosf(self.rollAngle);
@@ -1883,11 +1891,9 @@ static NSString *get_vehicle_name(int modelId) {
     *(int16_t *)(activeCam + 0x186) = 15;
     *(int16_t *)(cam + 0xc64) = 15;
     *(int32_t *)(cam + 0xb4) = 1;          // whoTakesControl = 1 (SCRIPT)
-    *(uint8_t *)(cam + 0x31) = 0;          // Prevent CCamera::Process from forcing up to (0,0,1)!
-    *(uint8_t *)(cam + 0x32) = 0;
     *(uint8_t *)(cam + 0x54) = 0;
 
-    // Target buffer assignments
+    // Direct target buffer assignments (0x83c is read by Mode 15 CCamera::Process!)
     *(float *)(cam + 0x83c) = camTarget[0];
     *(float *)(cam + 0x840) = camTarget[1];
     *(float *)(cam + 0x844) = camTarget[2];
@@ -1896,7 +1902,7 @@ static NSString *get_vehicle_name(int modelId) {
     *(float *)(activeCam + 0x2a8) = camTarget[1];
     *(float *)(activeCam + 0x2ac) = camTarget[2];
 
-    // Position buffer assignments
+    // Direct position buffer assignments
     *(float *)(cam + 0x848) = camPos[0];
     *(float *)(cam + 0x84c) = camPos[1];
     *(float *)(cam + 0x850) = camPos[2];
@@ -1905,7 +1911,7 @@ static NSString *get_vehicle_name(int modelId) {
     *(float *)(activeCam + 0x2b4) = camPos[1];
     *(float *)(activeCam + 0x2b8) = camPos[2];
 
-    // Front (forward) vector assignments
+    // Direct front vector assignments
     *(float *)(cam + 0x854) = fwdX;
     *(float *)(cam + 0x858) = fwdY;
     *(float *)(cam + 0x85c) = fwdZ;
@@ -1914,111 +1920,40 @@ static NSString *get_vehicle_name(int modelId) {
     *(float *)(activeCam + 0x2c0) = fwdY;
     *(float *)(activeCam + 0x2c4) = fwdZ;
 
-    // Up vector assignments for CCamera::Process
-    // In CCamera::Process (0x136ca0 & 0x136e94):
-    // reads up from activeCam + 0x304..0x30c and cam + 0x8cc..0x8d4
-    *(float *)(cam + 0x8cc) = upX;
-    *(float *)(cam + 0x8d0) = upY;
-    *(float *)(cam + 0x8d4) = upZ;
-
-    *(float *)(activeCam + 0x304) = upX;
-    *(float *)(activeCam + 0x308) = upY;
-    *(float *)(activeCam + 0x30c) = upZ;
-
+    // Direct up vector assignments
     *(float *)(activeCam + 0x2c8) = upX;
     *(float *)(activeCam + 0x2cc) = upY;
     *(float *)(activeCam + 0x2d0) = upZ;
 
-    // FOV
+    // Set FOV in activeCam and TheCamera
     *(float *)(activeCam + 0x8c) = self.currentFOV;
     *(float *)(activeCam + 0x90) = self.currentFOV;
     *(float *)(activeCam + 0x94) = self.currentFOV;
     *(float *)(cam + 0xd0) = self.currentFOV;
 
-    // RenderWare RwMatrix layout in TheCamera (cam + 0x970):
+    // Direct TheCamera.m_mCameraMatrix update (RenderWare RwMatrix)
     // 0x970: right vector
     *(float *)(cam + 0x970) = rightX;
     *(float *)(cam + 0x974) = rightY;
     *(float *)(cam + 0x978) = rightZ;
 
-    // 0x980: at / forward vector (NOT up!)
-    *(float *)(cam + 0x980) = fwdX;
-    *(float *)(cam + 0x984) = fwdY;
-    *(float *)(cam + 0x988) = fwdZ;
+    // 0x980: up vector
+    *(float *)(cam + 0x980) = upX;
+    *(float *)(cam + 0x984) = upY;
+    *(float *)(cam + 0x988) = upZ;
 
-    // 0x990: up vector (NOT forward!)
-    *(float *)(cam + 0x990) = upX;
-    *(float *)(cam + 0x994) = upY;
-    *(float *)(cam + 0x998) = upZ;
+    // 0x990: at / forward vector
+    *(float *)(cam + 0x990) = fwdX;
+    *(float *)(cam + 0x994) = fwdY;
+    *(float *)(cam + 0x998) = fwdZ;
 
     // 0x9a0: position vector
     *(float *)(cam + 0x9a0) = camPos[0];
     *(float *)(cam + 0x9a4) = camPos[1];
     *(float *)(cam + 0x9a8) = camPos[2];
-
-    // Direct RenderWare RwCamera / RwFrame sync
-    uintptr_t rwCam = *(uintptr_t *)(cam + 0x930);
-    if (rwCam) {
-        uintptr_t rwFrame = *(uintptr_t *)(rwCam + 8);
-        if (rwFrame) {
-            // RwFrame + 0x20: right vector
-            *(float *)(rwFrame + 0x20) = rightX;
-            *(float *)(rwFrame + 0x24) = rightY;
-            *(float *)(rwFrame + 0x28) = rightZ;
-            // RwFrame + 0x30: up vector
-            *(float *)(rwFrame + 0x30) = upX;
-            *(float *)(rwFrame + 0x34) = upY;
-            *(float *)(rwFrame + 0x38) = upZ;
-            // RwFrame + 0x40: at / forward vector
-            *(float *)(rwFrame + 0x40) = fwdX;
-            *(float *)(rwFrame + 0x44) = fwdY;
-            *(float *)(rwFrame + 0x48) = fwdZ;
-            // RwFrame + 0x50: position vector
-            *(float *)(rwFrame + 0x50) = camPos[0];
-            *(float *)(rwFrame + 0x54) = camPos[1];
-            *(float *)(rwFrame + 0x58) = camPos[2];
-
-            // RwFrameUpdateObjects (0x2ad698)
-            void (*rwFrameUpdate)(uintptr_t) = (void(*)(uintptr_t))((uintptr_t)slide + 0x100000000ULL + 0x2ad698);
-            if (rwFrameUpdate) {
-                rwFrameUpdate(rwFrame);
-            }
-        }
-    }
-
-    // Call CCamera::SetRwCameraMatrix(cam, 0) at 0x138130
-    void (*setRwCamMatrix)(uintptr_t, int) = (void(*)(uintptr_t, int))((uintptr_t)slide + 0x100000000ULL + 0x138130);
-    if (setRwCamMatrix) {
-        setRwCamMatrix(cam, 0);
-    }
 }
 
 @end
-
-static void (*orig_ios_tick)(id, SEL) = NULL;
-static void my_ios_tick(id self, SEL _cmd) {
-    if (g_droneActive && g_droneOverlay) {
-        [g_droneOverlay applyCameraToGame];
-    }
-    if (orig_ios_tick) {
-        orig_ios_tick(self, _cmd);
-    }
-}
-
-static void hook_ios_tick(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        Class cls = NSClassFromString(@"IOSViewController");
-        if (cls) {
-            Method m = class_getInstanceMethod(cls, @selector(tick));
-            if (m) {
-                orig_ios_tick = (void(*)(id, SEL))method_getImplementation(m);
-                method_setImplementation(m, (IMP)my_ios_tick);
-                NSLog(@"[DIRO] Hooked IOSViewController -tick successfully!");
-            }
-        }
-    });
-}
 
 // -----------------------------------------------------------------------------
 // DiroMenuModal: Full Modern Cheat Hub with 6 Categories
@@ -3285,7 +3220,6 @@ static void setup_diro_ui(void) {
             }
         }
 
-        hook_ios_tick();
         NSLog(@"[DIRO] Diro Mod Menu is 100%% active and visible on screen via DiroWindow!");
     });
 }

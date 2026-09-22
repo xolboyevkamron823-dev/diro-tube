@@ -1266,7 +1266,7 @@ static NSString *get_vehicle_name(int modelId) {
     CGFloat tbW = MIN(520.0, w - 20.0);
     self.topBar.frame = CGRectMake((w - tbW) / 2.0, 10.0, tbW, 40.0);
 
-    self.restoreHudPill.frame = CGRectMake(w - 70.0, 12.0, 58.0, 32.0);
+    self.miniRestoreBtn.frame = CGRectMake(w - 70.0, 12.0, 58.0, 32.0);
     self.toastLabel.frame = CGRectMake((w - 320.0) / 2.0, 56.0, 320.0, 24.0);
 
     self.joystick.frame = CGRectMake(35.0, h - 145.0, 115.0, 115.0);

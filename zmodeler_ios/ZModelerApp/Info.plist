@@ -28,6 +28,60 @@
 	<true/>
 	<key>UISupportsDocumentBrowser</key>
 	<true/>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon60x60</string>
+	<key>CFBundleIconFiles</key>
+	<array>
+		<string>AppIcon60x60</string>
+		<string>AppIcon76x76</string>
+		<string>icon_20</string>
+		<string>icon_29</string>
+		<string>icon_40</string>
+		<string>icon_58</string>
+		<string>icon_60</string>
+		<string>icon_76</string>
+		<string>icon_80</string>
+		<string>icon_87</string>
+		<string>icon_120</string>
+		<string>icon_152</string>
+		<string>icon_167</string>
+		<string>icon_180</string>
+		<string>icon_1024</string>
+	</array>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon60x60</string>
+				<string>icon_60</string>
+				<string>icon_120</string>
+				<string>icon_180</string>
+			</array>
+			<key>CFBundleIconName</key>
+			<string>AppIcon</string>
+		</dict>
+	</dict>
+	<key>CFBundleIcons~ipad</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon60x60</string>
+				<string>AppIcon76x76</string>
+				<string>icon_20</string>
+				<string>icon_29</string>
+				<string>icon_40</string>
+				<string>icon_76</string>
+				<string>icon_152</string>
+				<string>icon_167</string>
+			</array>
+			<key>CFBundleIconName</key>
+			<string>AppIcon</string>
+		</dict>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

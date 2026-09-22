@@ -22,10 +22,11 @@
 @interface DiroRootViewController : UIViewController
 @end
 
-@interface DiroDroneOverlayView : UIView
+@class DiroDroneOverlayView;
+@interface DiroDroneOverlayView (DiroSync)
 - (void)applyCameraToGame;
-@property (nonatomic, assign) BOOL isActive;
 @end
+static BOOL g_droneActive = NO;
 static DiroWindow *g_diroWindow = nil;
 static DiroFloatingButton *g_floatingButton = nil;
 static DiroMenuModal *g_menuModal = nil;
@@ -326,7 +327,7 @@ static void set_game_hud_visible(BOOL visible) {
 
 static void (*orig_ios_tick)(id, SEL) = NULL;
 static void my_ios_tick(id self, SEL _cmd) {
-    if (g_droneOverlay && g_droneOverlay.isActive) {
+    if (g_droneActive && g_droneOverlay) {
         [g_droneOverlay applyCameraToGame];
     }
     if (orig_ios_tick) {
@@ -1687,6 +1688,7 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)startDroneFlight {
     self.isActive = YES;
+    g_droneActive = YES;
     g_droneOverlay = self;
     if (g_floatingButton) g_floatingButton.hidden = YES;
 
@@ -1764,6 +1766,7 @@ static NSString *get_vehicle_name(int modelId) {
 
 - (void)stopDroneFlight {
     self.isActive = NO;
+    g_droneActive = NO;
     if (g_droneOverlay == self) {
         g_droneOverlay = nil;
     }

@@ -190,6 +190,7 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         for selectedUrl in sortedUrls {
             sendFileToWebView(url: selectedUrl, mode: self.currentPickerMode)
         }
+        self.currentPickerMode = "open"
 
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
@@ -213,12 +214,22 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
             let base64 = data.base64EncodedString()
             let fileName = url.lastPathComponent
 
+            let ext = url.pathExtension.lowercased()
+            var fileMode = mode
+            if ext == "dff" {
+                fileMode = (self.currentPickerMode == "merge") ? "merge" : "open"
+            } else if ext == "txd" {
+                fileMode = "txd"
+            } else if ["png", "jpg", "jpeg"].contains(ext) {
+                fileMode = "image"
+            }
+
             if base64.count < 3 * 1024 * 1024 {
                 // Direct transfer for smaller files
                 let payload: [String: String] = [
                     "data": base64,
                     "fileName": fileName,
-                    "mode": mode
+                    "mode": fileMode
                 ]
                 if let jsonData = try? JSONSerialization.data(withJSONObject: payload),
                    let jsonStr = String(data: jsonData, encoding: .utf8) {
@@ -234,7 +245,7 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
 
                 let initPayload: [String: Any] = [
                     "fileName": fileName,
-                    "mode": mode,
+                    "mode": fileMode,
                     "totalChunks": totalChunks
                 ]
                 if let initData = try? JSONSerialization.data(withJSONObject: initPayload),

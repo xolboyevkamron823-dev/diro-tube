@@ -353,9 +353,9 @@ class DFFModel {
             if (!extHeader || extHeader.type !== RW_CHUNKS.EXTENSION) break;
 
             const extEnd = extHeader.payloadEnd;
-            while (reader.offset < extEnd) {
+            while (reader.offset + 12 <= extEnd) {
                 const subHeader = reader.readHeader();
-                if (!subHeader) break;
+                if (!subHeader || subHeader.payloadEnd > extEnd) break;
 
                 if (subHeader.type === RW_CHUNKS.FRAMENAME || subHeader.type === RW_CHUNKS.USERDATA) {
                     const rawName = reader.readString(subHeader.size);
@@ -550,21 +550,22 @@ class DFFModel {
         const geomExtH = reader.readHeader();
         if (geomExtH && geomExtH.type === RW_CHUNKS.EXTENSION) {
             const extEnd = geomExtH.payloadEnd;
-            while (reader.offset < extEnd) {
+            while (reader.offset + 12 <= extEnd) {
                 const subH = reader.readHeader();
-                if (!subH) break;
+                if (!subH || subH.payloadEnd > extEnd) break;
 
                 if (subH.type === RW_CHUNKS.BINMESH) {
                     const flags = reader.readUint32();
                     const numMeshes = reader.readUint32();
                     const totalIndices = reader.readUint32();
+                    const isIndex32 = (totalIndices > 0) && ((subH.size - 12 - numMeshes * 8) >= totalIndices * 4);
                     let meshes = [];
                     for (let m = 0; m < numMeshes; m++) {
                         const numIndices = reader.readUint32();
                         const matIndex = reader.readUint32();
                         let indices = [];
                         for (let idx = 0; idx < numIndices; idx++) {
-                            indices.push(reader.readUint32());
+                            indices.push(isIndex32 ? reader.readUint32() : reader.readUint16());
                         }
                         meshes.push({ matIndex, indices });
                     }

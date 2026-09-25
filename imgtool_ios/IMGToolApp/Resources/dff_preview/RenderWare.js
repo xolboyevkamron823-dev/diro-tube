@@ -283,31 +283,78 @@ class DFFModel {
 
     parse(arrayBuffer) {
         const reader = new BinaryReader(arrayBuffer);
+        const view = reader.view;
         const rootHeader = reader.readHeader();
         if (!rootHeader || rootHeader.type !== RW_CHUNKS.CLUMP) {
             throw new Error("Fayl RenderWare Clump (DFF) emas!");
         }
         this.version = rootHeader.libId;
 
-        while (reader.offset < rootHeader.payloadEnd) {
-            const h = reader.readHeader();
-            if (!h) break;
+        // 1. Locate and parse FrameList
+        let frameListPos = -1;
+        for (let i = 12; i <= Math.min(reader.length - 24, 25000); i++) {
+            if (view.getUint32(i, true) === RW_CHUNKS.FRAMELIST && (view.getUint32(i + 8, true) & 0xffff) === 0xffff) {
+                frameListPos = i;
+                break;
+            }
+        }
+        if (frameListPos !== -1) {
+            reader.seek(frameListPos);
+            this.parseFrameList(reader, reader.readHeader());
+        }
 
-            if (h.type === RW_CHUNKS.STRUCT) {
-                const numAtomics = reader.readUint32();
-                const numLights = (h.size >= 8) ? reader.readUint32() : 0;
-                const numCameras = (h.size >= 12) ? reader.readUint32() : 0;
-                reader.seek(h.payloadEnd);
-            } else if (h.type === RW_CHUNKS.FRAMELIST) {
-                this.parseFrameList(reader, h);
-            } else if (h.type === RW_CHUNKS.GEOMETRYLIST) {
-                this.parseGeometryList(reader, h);
-            } else if (h.type === RW_CHUNKS.ATOMIC) {
-                this.parseAtomic(reader, h);
-            } else if (h.type === RW_CHUNKS.EXTENSION) {
-                this.clumpExtensions.push(reader.readBytes(h.size));
-            } else {
-                reader.skip(h.size);
+        // 2. Scan and parse all Geometries (type 0x0F containing Struct 0x01)
+        this.geometries = [];
+        const geomOffsets = [];
+        for (let i = 0; i <= reader.length - 24; i++) {
+            if (view.getUint32(i, true) === RW_CHUNKS.GEOMETRY && (view.getUint32(i + 8, true) & 0xffff) === 0xffff) {
+                const subT = view.getUint32(i + 12, true);
+                const subL = view.getUint32(i + 20, true);
+                if (subT === RW_CHUNKS.STRUCT && (subL & 0xffff) === 0xffff) {
+                    geomOffsets.push(i);
+                }
+            }
+        }
+        for (const pos of geomOffsets) {
+            reader.seek(pos);
+            try {
+                this.geometries.push(this.parseGeometry(reader, reader.readHeader()));
+            } catch (err) {
+                console.warn("Geom parse warning at", pos, err.message);
+            }
+        }
+
+        // 3. Scan and parse all Atomics (type 0x14 containing Struct 0x01)
+        this.atomics = [];
+        const atomicOffsets = [];
+        for (let i = 0; i <= reader.length - 24; i++) {
+            if (view.getUint32(i, true) === RW_CHUNKS.ATOMIC && (view.getUint32(i + 8, true) & 0xffff) === 0xffff) {
+                const subT = view.getUint32(i + 12, true);
+                const subL = view.getUint32(i + 20, true);
+                if (subT === RW_CHUNKS.STRUCT && (subL & 0xffff) === 0xffff) {
+                    atomicOffsets.push(i);
+                }
+            }
+        }
+        for (const pos of atomicOffsets) {
+            reader.seek(pos);
+            try {
+                this.parseAtomic(reader, reader.readHeader());
+            } catch (err) {
+                console.warn("Atomic parse warning at", pos, err.message);
+            }
+        }
+
+        // Fallback: If no atomics were found (e.g. standalone raw geometry), link geometries 1:1 to frames
+        if (this.atomics.length === 0 && this.geometries.length > 0) {
+            for (let g = 0; g < this.geometries.length; g++) {
+                this.atomics.push({
+                    frameIndex: Math.min(g, Math.max(0, this.frames.length - 1)),
+                    geometryIndex: g,
+                    flags: 5,
+                    unused: 0,
+                    extensions: []
+                });
             }
         }
     }
@@ -413,67 +460,73 @@ class DFFModel {
             numTexCoordSets = 1;
         }
 
+        const isNative = ((formatFlags & 0x01000000) !== 0) && (structHeader.size === 40);
+
         let colors = [];
-        if (hasPrelit) {
-            for (let i = 0; i < numVertices; i++) {
-                colors.push({
-                    r: reader.readUint8(),
-                    g: reader.readUint8(),
-                    b: reader.readUint8(),
-                    a: reader.readUint8()
-                });
-            }
-        }
-
         let texCoordSets = [];
-        for (let s = 0; s < numTexCoordSets; s++) {
-            let set = [];
-            for (let i = 0; i < numVertices; i++) {
-                set.push({
-                    u: reader.readFloat32(),
-                    v: reader.readFloat32()
-                });
-            }
-            texCoordSets.push(set);
-        }
-
         let triangles = [];
-        for (let i = 0; i < numTriangles; i++) {
-            const v2 = reader.readUint16();
-            const v1 = reader.readUint16();
-            const matIndex = reader.readUint16();
-            const v3 = reader.readUint16();
-            triangles.push({ v1, v2, v3, matIndex });
-        }
-
-        const sphere = {
-            x: reader.readFloat32(),
-            y: reader.readFloat32(),
-            z: reader.readFloat32(),
-            radius: reader.readFloat32()
-        };
-        const hasVerts = reader.readUint32();
-        const hasNorms = reader.readUint32();
-
+        let sphere = { x: 0, y: 0, z: 0, radius: 1 };
         let vertices = [];
-        if (hasVerts) {
-            for (let i = 0; i < numVertices; i++) {
-                vertices.push({
-                    x: reader.readFloat32(),
-                    y: reader.readFloat32(),
-                    z: reader.readFloat32()
-                });
-            }
-        }
-
         let normals = [];
-        if (hasNorms) {
-            for (let i = 0; i < numVertices; i++) {
-                normals.push({
-                    x: reader.readFloat32(),
-                    y: reader.readFloat32(),
-                    z: reader.readFloat32()
-                });
+
+        if (!isNative) {
+            if (hasPrelit) {
+                for (let i = 0; i < numVertices; i++) {
+                    colors.push({
+                        r: reader.readUint8(),
+                        g: reader.readUint8(),
+                        b: reader.readUint8(),
+                        a: reader.readUint8()
+                    });
+                }
+            }
+
+            for (let s = 0; s < numTexCoordSets; s++) {
+                let set = [];
+                for (let i = 0; i < numVertices; i++) {
+                    set.push({
+                        u: reader.readFloat32(),
+                        v: reader.readFloat32()
+                    });
+                }
+                texCoordSets.push(set);
+            }
+
+            for (let i = 0; i < numTriangles; i++) {
+                const v2 = reader.readUint16();
+                const v1 = reader.readUint16();
+                const matIndex = reader.readUint16();
+                const v3 = reader.readUint16();
+                triangles.push({ v1, v2, v3, matIndex });
+            }
+
+            sphere = {
+                x: reader.readFloat32(),
+                y: reader.readFloat32(),
+                z: reader.readFloat32(),
+                radius: reader.readFloat32()
+            };
+            const hasVerts = reader.readUint32();
+            const hasNorms = reader.readUint32();
+
+            if (hasVerts) {
+                for (let i = 0; i < numVertices; i++) {
+                    vertices.push({
+                        x: reader.readFloat32(),
+                        y: reader.readFloat32(),
+                        z: reader.readFloat32()
+                    });
+                }
+            }
+
+            if (hasNorms) {
+                for (let i = 0; i < numVertices; i++) {
+                    normals.push({
+                        x: reader.readFloat32(),
+                        y: reader.readFloat32(),
+                        z: reader.readFloat32()
+                    });
+                }
             }
         }
 

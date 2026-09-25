@@ -1533,45 +1533,64 @@ function toggleUVFlip() {
     showToast(isUVFlipped ? "🔄 UV: Teskari qilindi (180°)" : "🔄 UV: Asl holatga keltirildi");
 }
 
+// Native File Picker Bridge (Exposed Globally)
+window.triggerFilePicker = function(mode) {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
+        window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: mode });
+    } else {
+        if (mode === "txd") {
+            const input = document.getElementById('txd-file-input');
+            if (input) input.click();
+        } else if (mode === "merge") {
+            const input = document.getElementById('dff-merge-input');
+            if (input) input.click();
+        } else {
+            const input = document.getElementById('dff-file-input');
+            if (input) input.click();
+        }
+    }
+};
+
+function addSafeListener(id, event, handler) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.addEventListener(event, handler);
+        return true;
+    }
+    return false;
+}
+
 // -------------------------------------------------------------
 // UI SETUP & GENERAL EVENT HANDLERS
 // -------------------------------------------------------------
 function setupUIEvents() {
-    // Native File Picker Bridge
-    const triggerFilePicker = (mode) => {
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
-            window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: mode });
-        } else {
-            if (mode === "txd") document.getElementById('txd-file-input').click();
-            else if (mode === "merge") document.getElementById('dff-merge-input').click();
-            else document.getElementById('dff-file-input').click();
-        }
-    };
-
     // File Menu Toggle
     const btnMenuFile = document.getElementById('btn-menu-file');
     const menuFile = document.getElementById('menu-file');
-    btnMenuFile.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menuFile.classList.toggle('hidden');
-    });
-    document.addEventListener('click', () => menuFile.classList.add('hidden'));
+    if (btnMenuFile && menuFile) {
+        btnMenuFile.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuFile.classList.toggle('hidden');
+        });
+        document.addEventListener('click', () => menuFile.classList.add('hidden'));
+    }
 
-    document.getElementById('btn-open-file').addEventListener('click', () => triggerFilePicker("open"));
-    document.getElementById('btn-open-txd').addEventListener('click', () => triggerFilePicker("txd"));
-    document.getElementById('btn-merge-file').addEventListener('click', () => triggerFilePicker("merge"));
-    document.getElementById('btn-hier-add-dff').addEventListener('click', () => triggerFilePicker("merge"));
-    document.getElementById('btn-export-dff').addEventListener('click', exportCurrentDFF);
-    document.getElementById('btn-quick-export').addEventListener('click', exportCurrentDFF);
+    addSafeListener('btn-open-file', 'click', () => window.triggerFilePicker("open"));
+    addSafeListener('btn-welcome-open-dff', 'click', () => window.triggerFilePicker("open"));
+    addSafeListener('btn-open-txd', 'click', () => window.triggerFilePicker("txd"));
+    addSafeListener('btn-merge-file', 'click', () => window.triggerFilePicker("merge"));
+    addSafeListener('btn-hier-add-dff', 'click', () => window.triggerFilePicker("merge"));
+    addSafeListener('btn-export-dff', 'click', exportCurrentDFF);
+    addSafeListener('btn-quick-export', 'click', exportCurrentDFF);
 
     // Fallback file input listeners
-    document.getElementById('dff-file-input').addEventListener('change', handleFileInput);
-    document.getElementById('txd-file-input').addEventListener('change', handleTXDInput);
-    document.getElementById('dff-merge-input').addEventListener('change', handleMergeInput);
+    addSafeListener('dff-file-input', 'change', handleFileInput);
+    addSafeListener('txd-file-input', 'change', handleTXDInput);
+    addSafeListener('dff-merge-input', 'change', handleMergeInput);
 
     // Quad View Toggle
-    document.getElementById('btn-toggle-quad-mode').addEventListener('click', toggleQuadMode);
-    document.getElementById('btn-quick-switch-quad').addEventListener('click', toggleQuadMode);
+    addSafeListener('btn-toggle-quad-mode', 'click', toggleQuadMode);
+    addSafeListener('btn-quick-switch-quad', 'click', toggleQuadMode);
 
     document.querySelectorAll('.vp-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -1586,33 +1605,41 @@ function setupUIEvents() {
     });
 
     // Action Bar buttons
-    document.getElementById('btn-act-detach').addEventListener('click', detachSelectedPolygons);
-    document.getElementById('btn-act-delete').addEventListener('click', deleteSelectedElements);
-    document.getElementById('btn-act-flip').addEventListener('click', flipSelectedPolygons);
-    document.getElementById('btn-act-assign-mat').addEventListener('click', openMaterialEditorModal);
-    document.getElementById('btn-act-weld').addEventListener('click', () => {
-        document.getElementById('modal-weld-threshold').classList.remove('hidden');
+    addSafeListener('btn-act-detach', 'click', detachSelectedPolygons);
+    addSafeListener('btn-act-delete', 'click', deleteSelectedElements);
+    addSafeListener('btn-act-flip', 'click', flipSelectedPolygons);
+    addSafeListener('btn-act-assign-mat', 'click', openMaterialEditorModal);
+    addSafeListener('btn-act-weld', 'click', () => {
+        const modal = document.getElementById('modal-weld-threshold');
+        if (modal) modal.classList.remove('hidden');
     });
-    document.getElementById('btn-act-clear').addEventListener('click', () => {
+    addSafeListener('btn-act-clear', 'click', () => {
         selectedPolygonIndices.clear();
         selectedVertexIndices.clear();
         updatePolygonHighlight();
         updateVertexPointsHelper();
-        document.getElementById('action-floating-bar').classList.add('hidden');
+        const bar = document.getElementById('action-floating-bar');
+        if (bar) bar.classList.add('hidden');
     });
 
     // Weld threshold modal
-    document.getElementById('btn-close-weld-modal').addEventListener('click', () => {
-        document.getElementById('modal-weld-threshold').classList.add('hidden');
+    addSafeListener('btn-close-weld-modal', 'click', () => {
+        const modal = document.getElementById('modal-weld-threshold');
+        if (modal) modal.classList.add('hidden');
     });
-    document.getElementById('slider-weld-threshold').addEventListener('input', (e) => {
+    addSafeListener('slider-weld-threshold', 'input', (e) => {
         const m = parseFloat(e.target.value);
-        document.getElementById('val-weld-threshold').textContent = `${m.toFixed(3)} m (${(m * 1000).toFixed(0)}mm)`;
+        const lbl = document.getElementById('val-weld-threshold');
+        if (lbl) lbl.textContent = `${m.toFixed(3)} m (${(m * 1000).toFixed(0)}mm)`;
     });
-    document.getElementById('btn-confirm-weld').addEventListener('click', () => {
-        const threshold = parseFloat(document.getElementById('slider-weld-threshold').value);
-        weldVertices(threshold);
-        document.getElementById('modal-weld-threshold').classList.add('hidden');
+    addSafeListener('btn-confirm-weld', 'click', () => {
+        const slider = document.getElementById('slider-weld-threshold');
+        if (slider) {
+            const threshold = parseFloat(slider.value);
+            weldVertices(threshold);
+        }
+        const modal = document.getElementById('modal-weld-threshold');
+        if (modal) modal.classList.add('hidden');
     });
 
     // Gizmo Switcher
@@ -2392,6 +2419,38 @@ function showToast(msg) {
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 2200);
 }
+
+window.__nativeTransferState = null;
+
+window.initNativeFileTransfer = function(payload) {
+    window.__nativeTransferState = {
+        fileName: payload.fileName,
+        mode: payload.mode,
+        totalChunks: payload.totalChunks,
+        chunks: []
+    };
+    showToast(`Yuklanmoqda: ${payload.fileName}...`);
+};
+
+window.appendNativeFileChunk = function(payload) {
+    if (window.__nativeTransferState) {
+        window.__nativeTransferState.chunks.push(payload.chunk);
+    }
+};
+
+window.finishNativeFileTransfer = function() {
+    if (window.__nativeTransferState) {
+        const fullBase64 = window.__nativeTransferState.chunks.join('');
+        const fileName = window.__nativeTransferState.fileName;
+        const mode = window.__nativeTransferState.mode;
+        window.__nativeTransferState = null;
+        window.onNativeFileOpened(fullBase64, fileName, mode);
+    }
+};
+
+window.onNativeFileJson = function(payload) {
+    window.onNativeFileOpened(payload.data, payload.fileName, payload.mode);
+};
 
 window.onNativeFileOpened = function(base64Data, fileName, mode) {
     try {

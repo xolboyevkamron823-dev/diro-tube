@@ -1,0 +1,31 @@
+name: Build IMG Tool iOS
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'imgtool_ios/**'
+      - '.github/workflows/build_imgtool.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make build script executable
+        run: |
+          chmod +x imgtool_ios/build_app.sh
+
+      - name: Build IMG Tool iOS App
+        run: |
+          cd imgtool_ios
+          ./build_app.sh
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: IMGTool_iOS_IPA
+          path: imgtool_ios/IMGTool_iOS.ipa
+          retention-days: 7

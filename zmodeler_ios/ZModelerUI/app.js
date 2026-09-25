@@ -2452,19 +2452,67 @@ window.onNativeFileJson = function(payload) {
     window.onNativeFileOpened(payload.data, payload.fileName, payload.mode);
 };
 
+function detectFileType(bytes, fileName, mode) {
+    const lower = (fileName || "").toLowerCase();
+    
+    // Check RenderWare magic chunk header if we have at least 4 bytes
+    if (bytes && bytes.length >= 4) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const chunkType = view.getUint32(0, true);
+        
+        // 0x10 (16) is RW Clump -> 100% DFF 3D Model!
+        if (chunkType === 0x10) {
+            return (mode === "merge") ? "merge" : "dff";
+        }
+        
+        // 0x16 (22) is RW TexDictionary -> 100% TXD Texture Archive!
+        if (chunkType === 0x16) {
+            return "txd";
+        }
+        
+        // Check for PNG (\x89PNG = 0x474E5089 in LE)
+        if (chunkType === 0x474E5089) {
+            return "image";
+        }
+        
+        // Check for JPEG (\xFF\xD8 = 0xD8FF in LE 16-bit)
+        if ((chunkType & 0xFFFF) === 0xD8FF) {
+            return "image";
+        }
+    }
+    
+    // Fallback to file extension
+    if (lower.endsWith(".dff")) {
+        return (mode === "merge") ? "merge" : "dff";
+    }
+    if (lower.endsWith(".txd")) {
+        return "txd";
+    }
+    if (/\.(png|jpe?g|webp|bmp|tga)$/i.test(lower)) {
+        return "image";
+    }
+    
+    // Fallback to mode
+    if (mode === "txd") return "txd";
+    if (mode === "merge") return "merge";
+    return "dff";
+}
+
 window.onNativeFileOpened = function(base64Data, fileName, mode) {
     try {
         const binary = window.atob(base64Data);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-        const lowerName = fileName.toLowerCase();
-        if (mode === "txd" || lowerName.endsWith(".txd")) {
+        const fileType = detectFileType(bytes, fileName, mode);
+
+        if (fileType === "txd") {
             processTXDData(bytes.buffer, fileName);
-        } else if (/\.(png|jpe?g)$/i.test(lowerName)) {
-            const blob = new Blob([bytes], { type: lowerName.endsWith(".png") ? "image/png" : "image/jpeg" });
+        } else if (fileType === "image") {
+            const isPng = fileName.toLowerCase().endsWith(".png");
+            const blob = new Blob([bytes], { type: isPng ? "image/png" : "image/jpeg" });
             processImageFile(new File([blob], fileName));
-        } else if (mode === "merge") {
+        } else if (fileType === "merge") {
             mergeExternalDFF(bytes.buffer, fileName);
         } else {
             const model = new DFFModel();

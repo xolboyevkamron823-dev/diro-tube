@@ -136,6 +136,13 @@ struct ContentView: View {
                                         deleteFile(entry: ent)
                                     }
                                 )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if entry.isDFF {
+                                        activeEntry = entry
+                                        show3DSheet = true
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal)

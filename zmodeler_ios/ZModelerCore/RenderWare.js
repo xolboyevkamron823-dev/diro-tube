@@ -210,6 +210,69 @@ class BinaryWriter {
 }
 
 class DFFModel {
+    /**
+     * Unpacks RenderWare BinMeshPLG indices handling both triangle strips (flags & 1)
+     * and triangle lists (flags == 0), safely skipping degenerate connector triangles.
+     */
+    static unpackBinMesh(binMesh) {
+        if (!binMesh || !binMesh.meshes) return [];
+        const isStrip = (binMesh.flags & 1) !== 0;
+        const result = [];
+
+        for (const mesh of binMesh.meshes) {
+            const raw = mesh.indices;
+            const triList = [];
+            if (isStrip) {
+                for (let k = 0; k < raw.length - 2; k++) {
+                    const a = raw[k];
+                    const b = (k % 2 === 0) ? raw[k + 1] : raw[k + 2];
+                    const c = (k % 2 === 0) ? raw[k + 2] : raw[k + 1];
+                    // Skip degenerate connector triangles (used in hardware tristrips)
+                    if (a === b || b === c || a === c) continue;
+                    triList.push(a, b, c);
+                }
+            } else {
+                for (let k = 0; k < raw.length; k++) {
+                    triList.push(raw[k]);
+                }
+            }
+            result.push({
+                matIndex: mesh.matIndex,
+                indices: triList
+            });
+        }
+        return result;
+    }
+
+    /**
+     * Retrieves all triangle triplets for a geometry, grouped by material index.
+     * Compatible with both BinMesh and legacy geometry triangle chunks.
+     */
+    static getGeometryTriangles(geom) {
+        if (geom.binMesh && geom.binMesh.meshes && geom.binMesh.meshes.length > 0) {
+            return DFFModel.unpackBinMesh(geom.binMesh);
+        }
+
+        if (geom.triangles && geom.triangles.length > 0) {
+            const groups = {};
+            for (const t of geom.triangles) {
+                const m = t.matIndex || 0;
+                if (!groups[m]) groups[m] = [];
+                groups[m].push(t.v1, t.v2, t.v3);
+            }
+            const result = [];
+            for (const m in groups) {
+                result.push({
+                    matIndex: parseInt(m),
+                    indices: groups[m]
+                });
+            }
+            return result;
+        }
+
+        return [];
+    }
+
     constructor() {
         this.version = 0x1803ffff;
         this.frames = [];
@@ -722,10 +785,10 @@ class DFFModel {
 
         for (let i = 0; i < geom.numTriangles; i++) {
             const t = geom.triangles[i];
-            structWriter.writeUint16(t.v2);
-            structWriter.writeUint16(t.v1);
+            structWriter.writeUint16(t.v2 % 65536);
+            structWriter.writeUint16(t.v1 % 65536);
             structWriter.writeUint16(t.matIndex);
-            structWriter.writeUint16(t.v3);
+            structWriter.writeUint16(t.v3 % 65536);
         }
 
         const sp = geom.sphere || { x: 0, y: 0, z: 0, radius: 1.0 };

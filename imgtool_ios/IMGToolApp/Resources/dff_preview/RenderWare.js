@@ -1271,6 +1271,16 @@ class TXDParser {
     }
 }
 
+if (typeof window !== 'undefined') {
+    window.DFFModel = DFFModel;
+    window.TXDParser = TXDParser;
+    window.BinaryReader = BinaryReader;
+    window.BinaryWriter = BinaryWriter;
+} else if (typeof global !== 'undefined') {
+    global.DFFModel = DFFModel;
+    global.TXDParser = TXDParser;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DFFModel, TXDParser, RW_CHUNKS, BinaryReader, BinaryWriter };
 }

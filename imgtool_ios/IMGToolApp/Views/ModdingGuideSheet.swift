@@ -71,9 +71,13 @@ struct ModdingGuideSheet: View {
                 }
             }
             .navigationBarTitle("Qo'llanma", displayMode: .inline)
-            .navigationBarItems(trailing: Button("Yopish") {
+            .navigationBarItems(trailing: Button(action: {
                 presentationMode.wrappedValue.dismiss()
-            }.foregroundColor(.blue).fontWeight(.bold))
+            }) {
+                Text("Yopish")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 15, weight: .bold))
+            })
         }
     }
 }

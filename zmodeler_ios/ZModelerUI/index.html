@@ -61,12 +61,12 @@
         </div>
     </div>
 
-    <!-- Hidden native file inputs -->
-    <input type="file" id="dff-file-input" accept=".dff,.txd,.png,.jpg,.jpeg" multiple style="display: none;">
-    <input type="file" id="txd-file-input" accept=".txd,.png,.jpg,.jpeg" multiple style="display: none;">
-    <input type="file" id="dff-merge-input" accept=".dff" style="display: none;">
-    <input type="file" id="tex-file-input" accept="image/png,image/jpeg" style="display: none;">
-    <input type="file" id="mat-editor-tex-input" accept="image/png,image/jpeg" style="display: none;">
+    <!-- Hidden native file inputs (Allow any file so iOS does not grey out .dff and .txd) -->
+    <input type="file" id="dff-file-input" multiple style="display: none;">
+    <input type="file" id="txd-file-input" multiple style="display: none;">
+    <input type="file" id="dff-merge-input" style="display: none;">
+    <input type="file" id="tex-file-input" accept="image/*,*/*" style="display: none;">
+    <input type="file" id="mat-editor-tex-input" accept="image/*,*/*" style="display: none;">
 
     <!-- Top Primary Menu Bar -->
     <header class="top-nav">

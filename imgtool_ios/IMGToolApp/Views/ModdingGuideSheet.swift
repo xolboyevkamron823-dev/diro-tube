@@ -46,7 +46,7 @@ struct ModdingGuideSheet: View {
                             title: "3D Ko'rish va Qidiruv",
                             description: "Qidiruvga almashtirmoqchi bo'lgan mashinangizni yozing (masalan: infernus.dff, elegy.dff, sultan.dff). '3D' tugmasini bosib, o'yindagi mashinaning holatini 360° aylanuvchi kamerada ko'rishingiz mumkin!",
                             iconName: "cube.fill",
-                            accentColor: .cyan
+                            accentColor: Color(red: 0.0, green: 0.8, blue: 0.95)
                         )
                         
                         // Step 4

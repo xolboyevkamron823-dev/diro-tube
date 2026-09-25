@@ -1,19 +1,17 @@
 /**
- * Diro 3D Studio - ZModeler 2 iOS Core Application Engine
- * 1:1 PC ZModeler 2 Replica with:
- * - 4-Viewport CAD Layout (Top, Front, Left, 3D User) + Scissor Rendering + Maximize/Space toggle
- * - 4 Editing Levels: 1: Vertex Mode (Point Cloud, Gizmo centroid, Weld/Fuse), 2: Edge Mode, 3: Polygon Mode (Bright Red ZM2 highlight, Detach, Flip, Assign Mat), 4: Object Mode
- * - Complete RenderWare Tristrip (flags & 1) & 32-bit Index BufferGeometry (resolves 34MB+ model scrambling)
- * - Full ZModeler 2 Material Editor Window (Hotkey 'E', Shaders: Paint 1/2, Glass, Lights, Chrome, Matte)
- * - Interactive 2D UV Mapping Editor Window (Live 3D sync, Move, Scale, Rotate 90°, Flip H/V, Fit 0..1)
- * - ZModeler 2 Command Hierarchy (Modify, Surface, Vertices, Polygons)
- * - Full GTA San Andreas Binary DFF/TXD Import & Export
+ * Diro 3D Studio - ZModeler 2 iOS Core Engine
+ * Clean, uncluttered UI:
+ * - Default 1-View full screen 3D
+ * - 4-Viewport CAD Grid only when user clicks ⊞ 4-Oyna
+ * - Drawers only open on user request with tap-outside backdrop
+ * - RenderWare Tristrip + 32-bit indices for high-poly DFF models
+ * - ZM2 4 Editing Levels (1: Vert, 2: Edge, 3: Poly with bright red face highlight, 4: Obj)
+ * - Full Material Editor dialog (Hotkey E) & 2D UV Mapping Editor
  */
 
-// Configure Three.js for RenderWare GTA SA Coordinate System (Z is UP, X is Right, Y is Forward)
+// Coordinate System: GTA SA / RenderWare (Z is UP, X is Right, Y is Forward)
 THREE.Object3D.DefaultUp.set(0, 0, 1);
 
-// Global 3D Engine Variables
 let scene, renderer;
 let camera3D, cameraTop, cameraFront, cameraLeft;
 let orbitControls, transformControls;
@@ -57,7 +55,7 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0e1117);
 
-    // 2. Multi-Cameras (RenderWare Z-Up)
+    // 2. Multi-Cameras setup
     const aspect = window.innerWidth / window.innerHeight;
     
     // 3D User Perspective Camera
@@ -65,30 +63,30 @@ function init() {
     camera3D.up.set(0, 0, 1);
     camera3D.position.set(-5, -6, 3);
 
-    // Orthographic Top Camera (Looking down -Z)
+    // Orthographic Top Camera (Looking down along -Z, +Y is Up on screen)
     const frustumSize = 8;
     cameraTop = new THREE.OrthographicCamera(-frustumSize * aspect / 2, frustumSize * aspect / 2, frustumSize / 2, -frustumSize / 2, 0.1, 500);
-    cameraTop.up.set(0, 1, 0); // Y is up when looking down Z
+    cameraTop.up.set(0, 1, 0);
     cameraTop.position.set(0, 0, 20);
     cameraTop.lookAt(0, 0, 0);
 
-    // Orthographic Front Camera (Looking along -Y)
+    // Orthographic Front Camera (Looking along -Y from front of car, +Z is Up)
     cameraFront = new THREE.OrthographicCamera(-frustumSize * aspect / 2, frustumSize * aspect / 2, frustumSize / 2, -frustumSize / 2, 0.1, 500);
     cameraFront.up.set(0, 0, 1);
     cameraFront.position.set(0, 20, 0);
     cameraFront.lookAt(0, 0, 0);
 
-    // Orthographic Left Camera (Looking along +X)
+    // Orthographic Left Camera (Looking along +X from left side of car, +Z is Up)
     cameraLeft = new THREE.OrthographicCamera(-frustumSize * aspect / 2, frustumSize * aspect / 2, frustumSize / 2, -frustumSize / 2, 0.1, 500);
     cameraLeft.up.set(0, 0, 1);
     cameraLeft.position.set(-20, 0, 0);
     cameraLeft.lookAt(0, 0, 0);
 
     viewports = [
-        { name: "Top", camera: cameraTop, x: 0, y: 0.5, w: 0.5, h: 0.5 },
-        { name: "Front", camera: cameraFront, x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
-        { name: "Left", camera: cameraLeft, x: 0, y: 0, w: 0.5, h: 0.5 },
-        { name: "3D User", camera: camera3D, x: 0.5, y: 0, w: 0.5, h: 0.5 }
+        { name: "Top", camera: cameraTop },
+        { name: "Front", camera: cameraFront },
+        { name: "Left", camera: cameraLeft },
+        { name: "3D User", camera: camera3D }
     ];
 
     // 3. Renderer with Antialiasing
@@ -137,11 +135,10 @@ function init() {
     });
     scene.add(transformControls);
 
-    // Vertex dummy target for gizmo attachment
     vertexGizmoTarget = new THREE.Object3D();
     scene.add(vertexGizmoTarget);
 
-    // 8. Helpers for Polygons & Vertices
+    // 8. Edit Helpers (Red polygons overlay & Point cloud)
     initEditHelpers();
 
     // 9. Event Listeners
@@ -152,11 +149,10 @@ function init() {
     setupMaterialEditorModal();
     setupUVEditor();
 
-    // 10. Animation Loop
+    // 10. Start Animation Loop
     animate();
 }
 
-// Global Keyboard Shortcuts (Space: Toggle Viewport, E: Material Editor, 1-4: Edit Levels)
 function handleGlobalKeydown(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === ' ' || e.code === 'Space') {
@@ -164,18 +160,13 @@ function handleGlobalKeydown(e) {
         toggleQuadMode();
     } else if (e.key === 'e' || e.key === 'E') {
         openMaterialEditorModal();
-    } else if (e.key === '1') {
-        setEditLevel(1);
-    } else if (e.key === '2') {
-        setEditLevel(2);
-    } else if (e.key === '3') {
-        setEditLevel(3);
-    } else if (e.key === '4') {
-        setEditLevel(4);
-    }
+    } else if (e.key === '1') setEditLevel(1);
+    else if (e.key === '2') setEditLevel(2);
+    else if (e.key === '3') setEditLevel(3);
+    else if (e.key === '4') setEditLevel(4);
 }
 
-// 4-Viewport CAD Scissor Render Loop
+// Render Loop: Single Viewport or 4-Quadrant Scissor
 function animate() {
     requestAnimationFrame(animate);
 
@@ -185,11 +176,10 @@ function animate() {
     const h = window.innerHeight;
 
     if (!isQuadMode) {
-        // Single Active Viewport Mode (Full Screen)
+        // Single View Mode: Zero overlay clutter
         renderer.setScissorTest(false);
         renderer.setViewport(0, 0, w, h);
-        const cam = viewports[activeViewportIndex].camera;
-        renderer.render(scene, cam);
+        renderer.render(scene, viewports[activeViewportIndex].camera);
     } else {
         // 4-Viewport CAD Grid Mode
         renderer.setScissorTest(true);
@@ -227,7 +217,21 @@ function onWindowResize() {
     camera3D.aspect = aspect;
     camera3D.updateProjectionMatrix();
 
-    const frustumSize = 8;
+    if (currentRootGroup) {
+        const box = new THREE.Box3().setFromObject(currentRootGroup);
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z, 5);
+        updateOrthographicFrustums(maxDim);
+    }
+
+    renderer.setSize(w, h);
+    updateActiveViewportBorder();
+}
+
+function updateOrthographicFrustums(dim) {
+    const aspect = (window.innerWidth / 2) / (window.innerHeight / 2);
+    const frustumSize = dim * 1.35;
+
     [cameraTop, cameraFront, cameraLeft].forEach(cam => {
         cam.left = -frustumSize * aspect / 2;
         cam.right = frustumSize * aspect / 2;
@@ -235,24 +239,25 @@ function onWindowResize() {
         cam.bottom = -frustumSize / 2;
         cam.updateProjectionMatrix();
     });
-
-    renderer.setSize(w, h);
-    updateActiveViewportBorder();
 }
 
 function toggleQuadMode() {
     isQuadMode = !isQuadMode;
     const quadOverlay = document.getElementById('quad-container');
+    const singleBadge = document.getElementById('vp-single-indicator');
     const toggleBtn = document.getElementById('btn-toggle-quad-mode');
 
     if (isQuadMode) {
         quadOverlay.classList.remove('hidden');
+        singleBadge.classList.add('hidden');
         if (toggleBtn) toggleBtn.classList.add('active');
-        showToast("⊞ 4-Oyna Rejimi (Top, Front, Left, 3D User)");
+        showToast("⊞ 4-Oynali CAD Ko'rinishi (Top, Front, Left, 3D)");
     } else {
         quadOverlay.classList.add('hidden');
+        singleBadge.classList.remove('hidden');
         if (toggleBtn) toggleBtn.classList.remove('active');
-        showToast("▢ 1-Oyna Rejimi (" + viewports[activeViewportIndex].name + ")");
+        updateSingleViewBadge();
+        showToast("▢ 1-Oyna Ko'rinishi (" + viewports[activeViewportIndex].name + ")");
     }
     updateActiveViewportBorder();
 }
@@ -261,9 +266,18 @@ function maximizeViewport(vpIndex) {
     activeViewportIndex = vpIndex;
     isQuadMode = false;
     document.getElementById('quad-container').classList.add('hidden');
+    document.getElementById('vp-single-indicator').classList.remove('hidden');
     const toggleBtn = document.getElementById('btn-toggle-quad-mode');
     if (toggleBtn) toggleBtn.classList.remove('active');
+    updateSingleViewBadge();
     showToast(`Oyna: ${viewports[vpIndex].name} to'liq ekranga ochildi`);
+}
+
+function updateSingleViewBadge() {
+    const lbl = document.getElementById('lbl-active-view-name');
+    if (lbl) {
+        lbl.textContent = `🚗 ${viewports[activeViewportIndex].name.toUpperCase()}`;
+    }
 }
 
 function updateActiveViewportBorder() {
@@ -318,12 +332,10 @@ function initEditHelpers() {
 function setEditLevel(level) {
     currentEditLevel = level;
 
-    // Update level buttons in sub-nav
     document.querySelectorAll('.level-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.level) === level);
     });
 
-    // Reset sub-selections
     selectedPolygonIndices.clear();
     selectedVertexIndices.clear();
     updatePolygonHighlight();
@@ -332,14 +344,12 @@ function setEditLevel(level) {
     const actBar = document.getElementById('action-floating-bar');
 
     if (level === 4) {
-        // Object Mode
         if (selectedNode) transformControls.attach(selectedNode);
         polygonHighlightMesh.visible = false;
         vertexPointsHelper.visible = false;
         if (actBar) actBar.classList.add('hidden');
-        showToast("Daraja 4: Obyekt Rejimi (Butun detalni tanlash va surish)");
+        showToast("Daraja 4: Obyekt Rejimi (Butun detalni surish/burish)");
     } else if (level === 3) {
-        // Polygon Mode
         transformControls.detach();
         polygonHighlightMesh.visible = true;
         vertexPointsHelper.visible = false;
@@ -353,7 +363,6 @@ function setEditLevel(level) {
         }
         showToast("Daraja 3: Poligon Rejimi (Yuzalarni tanlash - Qizil rang)");
     } else if (level === 1) {
-        // Vertex Mode
         transformControls.detach();
         polygonHighlightMesh.visible = false;
         vertexPointsHelper.visible = true;
@@ -367,7 +376,6 @@ function setEditLevel(level) {
         }
         showToast("Daraja 1: Nuqta Rejimi (Vertex nuqtalarini tahrirlash)");
     } else if (level === 2) {
-        // Edge Mode
         transformControls.detach();
         polygonHighlightMesh.visible = false;
         vertexPointsHelper.visible = false;
@@ -376,7 +384,6 @@ function setEditLevel(level) {
     }
 }
 
-// Update bright red overlay for selected polygons (1:1 PC ZModeler 2)
 function updatePolygonHighlight() {
     if (!selectedMesh || currentEditLevel !== 3 || selectedPolygonIndices.size === 0) {
         polygonHighlightMesh.visible = false;
@@ -387,7 +394,6 @@ function updatePolygonHighlight() {
     const geom = selectedMesh.geometry;
     const posAttr = geom.attributes.position;
     const indexAttr = geom.index;
-
     const triPositions = [];
 
     selectedPolygonIndices.forEach(faceIdx => {
@@ -406,7 +412,6 @@ function updatePolygonHighlight() {
     newGeo.computeVertexNormals();
     polygonHighlightMesh.geometry = newGeo;
 
-    // Align with selected mesh world transform
     polygonHighlightMesh.matrixAutoUpdate = false;
     polygonHighlightMesh.matrix.copy(selectedMesh.matrixWorld);
     polygonHighlightMesh.visible = true;
@@ -417,7 +422,6 @@ function updatePolygonHighlight() {
     }
 }
 
-// Update Point Cloud Helper for Vertices
 function updateVertexPointsHelper() {
     if (!selectedMesh || currentEditLevel !== 1) {
         vertexPointsHelper.visible = false;
@@ -438,15 +442,9 @@ function updateVertexPointsHelper() {
         positions[i * 3 + 2] = posAttr.getZ(i);
 
         if (selectedVertexIndices.has(i)) {
-            // Bright red for selected vertices
-            colors[i * 3] = 1.0;
-            colors[i * 3 + 1] = 0.1;
-            colors[i * 3 + 2] = 0.1;
+            colors[i * 3] = 1.0; colors[i * 3 + 1] = 0.1; colors[i * 3 + 2] = 0.1; // Red
         } else {
-            // Sky cyan for unselected vertices
-            colors[i * 3] = 0.2;
-            colors[i * 3 + 1] = 0.7;
-            colors[i * 3 + 2] = 1.0;
+            colors[i * 3] = 0.2; colors[i * 3 + 1] = 0.7; colors[i * 3 + 2] = 1.0; // Cyan
         }
     }
 
@@ -460,12 +458,8 @@ function updateVertexPointsHelper() {
     vertexPointsHelper.matrix.copy(selectedMesh.matrixWorld);
     vertexPointsHelper.visible = true;
 
-    // Attach gizmo to centroid of selected vertices if any selected
-    if (selectedVertexIndices.size > 0) {
-        attachGizmoToVertexCentroid();
-    } else {
-        transformControls.detach();
-    }
+    if (selectedVertexIndices.size > 0) attachGizmoToVertexCentroid();
+    else transformControls.detach();
 
     updateActionBarLabel(selectedVertexIndices.size);
 }
@@ -476,9 +470,7 @@ function attachGizmoToVertexCentroid() {
 
     let cx = 0, cy = 0, cz = 0;
     selectedVertexIndices.forEach(idx => {
-        cx += posAttr.getX(idx);
-        cy += posAttr.getY(idx);
-        cz += posAttr.getZ(idx);
+        cx += posAttr.getX(idx); cy += posAttr.getY(idx); cz += posAttr.getZ(idx);
     });
     const count = selectedVertexIndices.size;
     const localCentroid = new THREE.Vector3(cx / count, cy / count, cz / count);
@@ -495,18 +487,12 @@ function applyVertexGizmoDrag() {
     const currentPos = vertexGizmoTarget.position;
     const deltaWorld = currentPos.clone().sub(vertexGizmoTarget.userData.lastWorldPos);
 
-    // Convert delta from World to Local mesh coordinates
     const invMat = new THREE.Matrix4().copy(selectedMesh.matrixWorld).invert();
     const deltaLocal = deltaWorld.clone().transformDirection(invMat);
 
     const posAttr = selectedMesh.geometry.attributes.position;
     selectedVertexIndices.forEach(idx => {
-        posAttr.setXYZ(
-            idx,
-            posAttr.getX(idx) + deltaLocal.x,
-            posAttr.getY(idx) + deltaLocal.y,
-            posAttr.getZ(idx) + deltaLocal.z
-        );
+        posAttr.setXYZ(idx, posAttr.getX(idx) + deltaLocal.x, posAttr.getY(idx) + deltaLocal.y, posAttr.getZ(idx) + deltaLocal.z);
     });
 
     posAttr.needsUpdate = true;
@@ -518,28 +504,23 @@ function applyVertexGizmoDrag() {
 
 function updateActionBarLabel(count) {
     const lbl = document.getElementById('act-bar-label');
-    if (lbl) {
-        lbl.textContent = `${count} ta tanlangan`;
-    }
+    if (lbl) lbl.textContent = `${count} ta tanlangan`;
 }
 
 // -------------------------------------------------------------
-// RAYCASTER & SELECTION HANDLING
+// RAYCASTER & POINTER INTERACTION
 // -------------------------------------------------------------
 function setupRaycaster() {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     let touchStartTime = 0;
 
-    renderer.domElement.addEventListener('touchstart', () => {
-        touchStartTime = Date.now();
-    });
+    renderer.domElement.addEventListener('touchstart', () => { touchStartTime = Date.now(); });
 
     renderer.domElement.addEventListener('touchend', (e) => {
         if (Date.now() - touchStartTime > 300) return;
         if (e.changedTouches.length !== 1) return;
-        const touch = e.changedTouches[0];
-        handlePointerSelect(touch.clientX, touch.clientY);
+        handlePointerSelect(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
     });
 
     renderer.domElement.addEventListener('click', (e) => {
@@ -557,20 +538,16 @@ function setupRaycaster() {
 
             if (clientX < halfW && clientY < halfH) {
                 activeViewportIndex = 0; activeCam = cameraTop;
-                mouse.x = (clientX / halfW) * 2 - 1;
-                mouse.y = -((clientY) / halfH) * 2 + 1;
+                mouse.x = (clientX / halfW) * 2 - 1; mouse.y = -(clientY / halfH) * 2 + 1;
             } else if (clientX >= halfW && clientY < halfH) {
                 activeViewportIndex = 1; activeCam = cameraFront;
-                mouse.x = ((clientX - halfW) / halfW) * 2 - 1;
-                mouse.y = -((clientY) / halfH) * 2 + 1;
+                mouse.x = ((clientX - halfW) / halfW) * 2 - 1; mouse.y = -(clientY / halfH) * 2 + 1;
             } else if (clientX < halfW && clientY >= halfH) {
                 activeViewportIndex = 2; activeCam = cameraLeft;
-                mouse.x = (clientX / halfW) * 2 - 1;
-                mouse.y = -((clientY - halfH) / halfH) * 2 + 1;
+                mouse.x = (clientX / halfW) * 2 - 1; mouse.y = -((clientY - halfH) / halfH) * 2 + 1;
             } else {
                 activeViewportIndex = 3; activeCam = camera3D;
-                mouse.x = ((clientX - halfW) / halfW) * 2 - 1;
-                mouse.y = -((clientY - halfH) / halfH) * 2 + 1;
+                mouse.x = ((clientX - halfW) / halfW) * 2 - 1; mouse.y = -((clientY - halfH) / halfH) * 2 + 1;
             }
             updateActiveViewportBorder();
         } else {
@@ -583,7 +560,7 @@ function setupRaycaster() {
         if (!currentRootGroup) return;
 
         if (currentEditLevel === 4) {
-            // Object Level Selection
+            // Object Selection
             const intersects = raycaster.intersectObjects(currentRootGroup.children, true);
             if (intersects.length > 0) {
                 let hitObj = intersects[0].object;
@@ -594,74 +571,61 @@ function setupRaycaster() {
                     hitObj = hitObj.parent;
                 }
                 if (hitObj && hitObj.userData && hitObj.userData.frameIndex !== undefined) {
-                    selectNodeByIndex(hitObj.userData.frameIndex, meshCandidate);
+                    // Select node WITHOUT auto-opening the inspector drawer!
+                    selectNodeByIndex(hitObj.userData.frameIndex, meshCandidate, false);
                 }
             }
         } else if (currentEditLevel === 3) {
-            // Polygon Level Selection
+            // Polygon Selection
             if (!selectedMesh) return;
             const intersects = raycaster.intersectObject(selectedMesh, false);
             if (intersects.length > 0) {
                 const faceIndex = intersects[0].faceIndex;
-                if (selectedPolygonIndices.has(faceIndex)) {
-                    selectedPolygonIndices.delete(faceIndex);
-                } else {
-                    selectedPolygonIndices.add(faceIndex);
-                }
+                if (selectedPolygonIndices.has(faceIndex)) selectedPolygonIndices.delete(faceIndex);
+                else selectedPolygonIndices.add(faceIndex);
                 updatePolygonHighlight();
             }
         } else if (currentEditLevel === 1) {
-            // Vertex Level Selection
+            // Vertex Selection
             if (!selectedMesh) return;
             const posAttr = selectedMesh.geometry.attributes.position;
             const intersects = raycaster.intersectObject(selectedMesh, false);
             if (intersects.length > 0) {
                 const face = intersects[0].face;
-                // Add the closest vertex of the clicked face
                 const hitPointLocal = intersects[0].point.clone().applyMatrix4(new THREE.Matrix4().copy(selectedMesh.matrixWorld).invert());
                 const vA = new THREE.Vector3(posAttr.getX(face.a), posAttr.getY(face.a), posAttr.getZ(face.a));
                 const vB = new THREE.Vector3(posAttr.getX(face.b), posAttr.getY(face.b), posAttr.getZ(face.b));
                 const vC = new THREE.Vector3(posAttr.getX(face.c), posAttr.getY(face.c), posAttr.getZ(face.c));
 
-                const dA = hitPointLocal.distanceTo(vA);
-                const dB = hitPointLocal.distanceTo(vB);
-                const dC = hitPointLocal.distanceTo(vC);
-
                 let closest = face.a;
-                let minDist = dA;
-                if (dB < minDist) { closest = face.b; minDist = dB; }
-                if (dC < minDist) { closest = face.c; }
+                let minDist = hitPointLocal.distanceTo(vA);
+                if (hitPointLocal.distanceTo(vB) < minDist) { closest = face.b; minDist = hitPointLocal.distanceTo(vB); }
+                if (hitPointLocal.distanceTo(vC) < minDist) closest = face.c;
 
-                if (selectedVertexIndices.has(closest)) {
-                    selectedVertexIndices.delete(closest);
-                } else {
-                    selectedVertexIndices.add(closest);
-                }
+                if (selectedVertexIndices.has(closest)) selectedVertexIndices.delete(closest);
+                else selectedVertexIndices.add(closest);
                 updateVertexPointsHelper();
             }
         }
     }
 
-    // Hide launch screen splash
     const loader = document.getElementById('app-loading-state');
     if (loader) {
         loader.style.opacity = '0';
-        setTimeout(() => loader.remove(), 350);
+        setTimeout(() => loader.remove(), 300);
     }
 }
 
 // -------------------------------------------------------------
-// POLYGON & VERTEX OPERATIONS (DETACH, DELETE, FLIP, WELD, ASSIGN)
+// POLYGON & VERTEX OPERATIONS
 // -------------------------------------------------------------
-
-// Detach selected polygons into a brand new part in the hierarchy
 function detachSelectedPolygons() {
     if (!selectedMesh || selectedPolygonIndices.size === 0 || !currentDFF) {
         showToast("Ajratish uchun avval poligonlarni tanlang!");
         return;
     }
 
-    const partName = prompt("Yangi detal nomini kiriting:", `${selectedNode.name}_detached`);
+    const partName = prompt("Yangi detal nomi:", `${selectedNode.name}_part`);
     if (!partName) return;
 
     const oldGeom = selectedMesh.geometry;
@@ -700,11 +664,9 @@ function detachSelectedPolygons() {
         }
     }
 
-    // 1. Update existing geometry (remove detached faces)
     oldGeom.setIndex(keepIndices);
     oldGeom.groups = [{ start: 0, count: keepIndices.length, materialIndex: 0 }];
 
-    // 2. Create new frame and geometry in DFFModel
     const newFrameIndex = currentDFF.frames.length;
     const parentIndex = selectedNode.userData.frameIndex;
 
@@ -719,7 +681,6 @@ function detachSelectedPolygons() {
     };
     currentDFF.frames.push(newFrame);
 
-    // Build new BufferGeometry for detached part
     const newBufferGeom = new THREE.BufferGeometry();
     newBufferGeom.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
     if (newNormals.length > 0) newBufferGeom.setAttribute('normal', new THREE.Float32BufferAttribute(newNormals, 3));
@@ -741,11 +702,10 @@ function detachSelectedPolygons() {
     selectedPolygonIndices.clear();
     updatePolygonHighlight();
     renderHierarchyList();
-    selectNodeByIndex(newFrameIndex, newMesh);
-    showToast(`⚡ Ajratildi: "${partName}" yangi detal sifatida qo'shildi!`);
+    selectNodeByIndex(newFrameIndex, newMesh, false);
+    showToast(`⚡ Ajratildi: "${partName}" yangi detalga aylandi!`);
 }
 
-// Delete selected polygons or vertices
 function deleteSelectedElements() {
     if (currentEditLevel === 3) {
         if (!selectedMesh || selectedPolygonIndices.size === 0) return;
@@ -776,7 +736,6 @@ function deleteSelectedElements() {
             const i0 = oldIndex.getX(f * 3);
             const i1 = oldIndex.getX(f * 3 + 1);
             const i2 = oldIndex.getX(f * 3 + 2);
-
             if (!selectedVertexIndices.has(i0) && !selectedVertexIndices.has(i1) && !selectedVertexIndices.has(i2)) {
                 keepIndices.push(i0, i1, i2);
             }
@@ -786,23 +745,18 @@ function deleteSelectedElements() {
         geom.groups = [{ start: 0, count: keepIndices.length, materialIndex: 0 }];
         selectedVertexIndices.clear();
         updateVertexPointsHelper();
-        showToast("Tanlangan nuqtalar va ularga ulangan poligonlar o'chirildi!");
+        showToast("Tanlangan nuqtalar o'chirildi!");
     }
 }
 
-// Flip normals and polygon winding order
 function flipSelectedPolygons() {
-    if (!selectedMesh || selectedPolygonIndices.size === 0) {
-        showToast("O'girish uchun poligonlarni tanlang!");
-        return;
-    }
+    if (!selectedMesh || selectedPolygonIndices.size === 0) return;
     const geom = selectedMesh.geometry;
     const indexAttr = geom.index;
 
     selectedPolygonIndices.forEach(faceIdx => {
         const i1 = indexAttr.getX(faceIdx * 3 + 1);
         const i2 = indexAttr.getX(faceIdx * 3 + 2);
-        // Swap winding order
         indexAttr.setX(faceIdx * 3 + 1, i2);
         indexAttr.setX(faceIdx * 3 + 2, i1);
     });
@@ -813,7 +767,6 @@ function flipSelectedPolygons() {
     showToast("🔄 Poligonlar o'girildi (Normallar teskarilandi)");
 }
 
-// Weld / Fuse Vertices within threshold distance
 function weldVertices(threshold = 0.005) {
     if (!selectedMesh) return;
     const geom = selectedMesh.geometry;
@@ -848,12 +801,9 @@ function weldVertices(threshold = 0.005) {
         return;
     }
 
-    // Remap indices
     for (let k = 0; k < indexAttr.count; k++) {
         const idx = indexAttr.getX(k);
-        if (weldMap.has(idx)) {
-            indexAttr.setX(k, weldMap.get(idx));
-        }
+        if (weldMap.has(idx)) indexAttr.setX(k, weldMap.get(idx));
     }
 
     indexAttr.needsUpdate = true;
@@ -866,9 +816,7 @@ function weldVertices(threshold = 0.005) {
 // RENDERWARE DFF PARSING & 32-BIT BUFFERGEOMETRY (34MB+ FIX)
 // -------------------------------------------------------------
 function buildThreeSceneFromDFF(dff) {
-    if (currentRootGroup) {
-        scene.remove(currentRootGroup);
-    }
+    if (currentRootGroup) scene.remove(currentRootGroup);
     transformControls.detach();
     selectedNode = null;
     selectedMesh = null;
@@ -906,7 +854,7 @@ function buildThreeSceneFromDFF(dff) {
         }
     }
 
-    // 2. Assemble Hierarchy (parent-child)
+    // 2. Assemble Hierarchy
     for (let i = 0; i < dff.frames.length; i++) {
         const frame = dff.frames[i];
         const group = frameGroups[i];
@@ -918,17 +866,15 @@ function buildThreeSceneFromDFF(dff) {
         }
     }
 
-    // 3. Attach Geometries via Atomics using Tristrip Unpacker & 32-bit Indices
+    // 3. Attach Geometries using Tristrip Unpacker & 32-bit Indices
     for (let i = 0; i < dff.atomics.length; i++) {
         const at = dff.atomics[i];
         if (at.frameIndex >= frameGroups.length || at.geometryIndex >= dff.geometries.length) continue;
 
         const targetGroup = frameGroups[at.frameIndex];
         const geom = dff.geometries[at.geometryIndex];
-
         const bufferGeom = new THREE.BufferGeometry();
 
-        // Vertices
         if (geom.vertices && geom.vertices.length > 0) {
             const posArray = new Float32Array(geom.vertices.length * 3);
             for (let v = 0; v < geom.vertices.length; v++) {
@@ -939,7 +885,6 @@ function buildThreeSceneFromDFF(dff) {
             bufferGeom.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
         }
 
-        // Normals
         if (geom.normals && geom.normals.length > 0) {
             const normArray = new Float32Array(geom.normals.length * 3);
             for (let n = 0; n < geom.normals.length; n++) {
@@ -952,7 +897,6 @@ function buildThreeSceneFromDFF(dff) {
             bufferGeom.computeVertexNormals();
         }
 
-        // Texture Coordinates (UVs)
         if (geom.texCoordSets && geom.texCoordSets.length > 0 && geom.texCoordSets[0].length > 0) {
             const uvSet = geom.texCoordSets[0];
             const uvArray = new Float32Array(uvSet.length * 2);
@@ -963,7 +907,6 @@ function buildThreeSceneFromDFF(dff) {
             bufferGeom.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
         }
 
-        // Colors (Prelit)
         if (geom.colors && geom.colors.length > 0) {
             const colArray = new Float32Array(geom.colors.length * 3);
             for (let c = 0; c < geom.colors.length; c++) {
@@ -974,31 +917,22 @@ function buildThreeSceneFromDFF(dff) {
             bufferGeom.setAttribute('color', new THREE.BufferAttribute(colArray, 3));
         }
 
-        // CRITICAL FIX FOR 34MB+ HIGH-POLY MODELS & TRISTRIPS:
-        // Use DFFModel.getGeometryTriangles to properly decompress Tristrips
-        // and safely handle 32-bit (>65535) indices!
+        // Unpack Tristrips & Multi-Materials
         const unpackedMeshes = DFFModel.getGeometryTriangles(geom);
         let allIndices = [];
 
         if (unpackedMeshes && unpackedMeshes.length > 0) {
             for (const sub of unpackedMeshes) {
                 const start = allIndices.length;
-                for (let k = 0; k < sub.indices.length; k++) {
-                    allIndices.push(sub.indices[k]);
-                }
+                for (let k = 0; k < sub.indices.length; k++) allIndices.push(sub.indices[k]);
                 bufferGeom.addGroup(start, sub.indices.length, sub.matIndex);
             }
         }
 
-        // 32-bit Index Buffer if vertex count > 65535
         const needsUint32 = (geom.numVertices > 65535) || allIndices.some(idx => idx > 65535);
-        if (needsUint32) {
-            bufferGeom.setIndex(new THREE.Uint32BufferAttribute(new Uint32Array(allIndices), 1));
-        } else {
-            bufferGeom.setIndex(new THREE.Uint16BufferAttribute(new Uint16Array(allIndices), 1));
-        }
+        if (needsUint32) bufferGeom.setIndex(new THREE.Uint32BufferAttribute(new Uint32Array(allIndices), 1));
+        else bufferGeom.setIndex(new THREE.Uint16BufferAttribute(new Uint16Array(allIndices), 1));
 
-        // Materials setup with DoubleSide to ensure no missing faces
         let threeMaterials = [];
         if (geom.materials && geom.materials.length > 0) {
             for (let m = 0; m < geom.materials.length; m++) {
@@ -1029,7 +963,7 @@ function buildThreeSceneFromDFF(dff) {
         targetGroup.add(mesh);
     }
 
-    // 4. Attach Visual Helpers for Dummies
+    // 4. Attach Dummy Helpers
     for (let i = 0; i < frameGroups.length; i++) {
         const grp = frameGroups[i];
         const hasMeshes = grp.children.some(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
@@ -1039,65 +973,81 @@ function buildThreeSceneFromDFF(dff) {
             if (grp.name.includes("wheel")) dummyColor = 0x38bdf8;
             else if (grp.name.includes("light")) dummyColor = 0xfacc15;
             else if (grp.name.includes("exhaust")) dummyColor = 0xef4444;
-            else if (grp.name.includes("ped") || grp.name.includes("seat")) dummyColor = 0x22c55e;
 
             const dummyGeo = new THREE.SphereGeometry(0.06, 12, 12);
-            const dummyMat = new THREE.MeshBasicMaterial({ color: dummyColor });
-            const dummyMesh = new THREE.Mesh(dummyGeo, dummyMat);
+            const dummyMesh = new THREE.Mesh(dummyGeo, new THREE.MeshBasicMaterial({ color: dummyColor }));
             dummyMesh.name = "__dummy_helper__";
-
-            const axes = new THREE.AxesHelper(0.18);
-            axes.name = "__dummy_axes__";
-
             grp.add(dummyMesh);
-            grp.add(axes);
+            grp.add(new THREE.AxesHelper(0.18));
         }
     }
 
     scene.add(currentRootGroup);
 
-    // Frame camera to vehicle
+    // 5. Precisely frame all 4 cameras to the model bounding box
     const box = new THREE.Box3().setFromObject(currentRootGroup);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
+    const maxDim = Math.max(size.x, size.y, size.z, 4);
 
-    orbitControls.target.copy(center);
+    // Update Orthographic Frustums
+    updateOrthographicFrustums(maxDim);
+
+    // Camera Top: straight down onto the roof
+    cameraTop.position.set(center.x, center.y, center.z + maxDim * 2.5);
+    cameraTop.lookAt(center);
+    cameraTop.updateProjectionMatrix();
+
+    // Camera Front: looking straight at the front bumper (+Y forward)
+    cameraFront.position.set(center.x, center.y + maxDim * 2.5, center.z);
+    cameraFront.lookAt(center);
+    cameraFront.updateProjectionMatrix();
+
+    // Camera Left: looking straight at the driver side profile (-X)
+    cameraLeft.position.set(center.x - maxDim * 2.5, center.y, center.z);
+    cameraLeft.lookAt(center);
+    cameraLeft.updateProjectionMatrix();
+
+    // Camera 3D: 3D perspective angled view
     camera3D.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.8);
     camera3D.lookAt(center);
+    orbitControls.target.copy(center);
     orbitControls.update();
+
+    // Clean initial state: Ensure 1-View full screen mode by default (No Quad overlays!)
+    isQuadMode = false;
+    document.getElementById('quad-container').classList.add('hidden');
+    document.getElementById('vp-single-indicator').classList.remove('hidden');
+    updateSingleViewBadge();
+
+    // Close drawers if any were open
+    closeAllDrawers();
 
     renderHierarchyList();
 
     document.getElementById('welcome-overlay').classList.add('hidden');
     if (isShaderMode) updateAllMaterialsShader();
 
-    showToast(`DFF ochildi: ${dff.frames.length} qism, ${dff.geometries.length} geometriya (Toza ochildi!)`);
+    showToast(`DFF ochildi: ${dff.frames.length} qism, ${dff.geometries.length} geometriya`);
 }
 
 // -------------------------------------------------------------
-// FULL ZMODELER 2 MATERIAL EDITOR (HOTKEY 'E')
+// MATERIAL EDITOR & SHADERS
 // -------------------------------------------------------------
 function openMaterialEditorModal() {
-    if (!currentDFF) {
-        showToast("Avval modelni oching!");
-        return;
-    }
-    const modal = document.getElementById('modal-mat-editor');
-    if (modal) modal.classList.remove('hidden');
+    if (!currentDFF) { showToast("Avval modelni oching!"); return; }
+    document.getElementById('modal-mat-editor').classList.remove('hidden');
     populateModalMaterialList();
 }
 
 function closeMaterialEditorModal() {
-    const modal = document.getElementById('modal-mat-editor');
-    if (modal) modal.classList.add('hidden');
+    document.getElementById('modal-mat-editor').classList.add('hidden');
 }
 
 function setupMaterialEditorModal() {
     document.getElementById('btn-close-mat-editor').addEventListener('click', closeMaterialEditorModal);
     document.getElementById('btn-open-mat-editor').addEventListener('click', openMaterialEditorModal);
 
-    // Color picker
     const picker = document.getElementById('modal-mat-color-picker');
     const hexInput = document.getElementById('modal-mat-color-hex');
     const alphaSlider = document.getElementById('slider-modal-mat-alpha');
@@ -1116,7 +1066,6 @@ function setupMaterialEditorModal() {
         applyModalMatChanges();
     });
 
-    // Ambient / Specular
     document.getElementById('slider-modal-ambient').addEventListener('input', (e) => {
         document.getElementById('val-modal-ambient').textContent = parseFloat(e.target.value).toFixed(2);
         applyModalMatChanges();
@@ -1126,12 +1075,10 @@ function setupMaterialEditorModal() {
         applyModalMatChanges();
     });
 
-    // Shader Preset Change
     document.getElementById('modal-mat-shader').addEventListener('change', (e) => {
         applyShaderPreset(e.target.value);
     });
 
-    // Texture image button
     const texInput = document.getElementById('mat-editor-tex-input');
     document.getElementById('btn-modal-load-tex').addEventListener('click', () => texInput.click());
     texInput.addEventListener('change', (e) => {
@@ -1154,26 +1101,22 @@ function setupMaterialEditorModal() {
                 document.getElementById('modal-tex-preview-name').textContent = file.name;
 
                 applyModalMatChanges(texture);
-                showToast(`Tekstura materialga ulandi: ${file.name}`);
+                showToast(`Tekstura ulandi: ${file.name}`);
             });
         };
         reader.readAsDataURL(file);
     });
 
-    // Assignment buttons
     document.getElementById('btn-mat-assign-selected-poly').addEventListener('click', () => {
         if (!selectedMesh || selectedPolygonIndices.size === 0) {
-            showToast("Avval Poligon rejimida (3) kerakli yuzalarni tanlang!");
+            showToast("Avval Poligon rejimida (3) yuzalarni tanlang!");
             return;
         }
         assignMaterialToPolygons(selectedMaterialIndex);
     });
 
     document.getElementById('btn-mat-assign-object').addEventListener('click', () => {
-        if (!selectedMesh) {
-            showToast("Avval detalni tanlang!");
-            return;
-        }
+        if (!selectedMesh) { showToast("Avval detalni tanlang!"); return; }
         const numFaces = selectedMesh.geometry.index.count / 3;
         selectedPolygonIndices = new Set(Array.from({ length: numFaces }, (_, i) => i));
         assignMaterialToPolygons(selectedMaterialIndex);
@@ -1186,7 +1129,6 @@ function populateModalMaterialList() {
     list.innerHTML = '';
     if (!currentDFF || currentDFF.geometries.length === 0) return;
 
-    // Collect all materials from current model
     const allMats = [];
     currentDFF.geometries.forEach((g, gIdx) => {
         if (g.materials) {
@@ -1263,7 +1205,6 @@ function applyModalMatChanges(customTexture = null) {
     if (customTexture) targetMat.map = customTexture;
     targetMat.needsUpdate = true;
 
-    // Update DFF Model material
     if (targetMat.userData && targetMat.userData.dffMat) {
         targetMat.userData.dffMat.color = {
             r: Math.round(col.r * 255),
@@ -1275,7 +1216,6 @@ function applyModalMatChanges(customTexture = null) {
     }
 }
 
-// GTA San Andreas Shader Presets
 function applyShaderPreset(presetName) {
     if (!selectedMesh) return;
     const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
@@ -1286,48 +1226,22 @@ function applyShaderPreset(presetName) {
 
     switch (presetName) {
         case 'paint_primary':
-            mat.roughness = 0.12;
-            mat.metalness = 0.65;
-            mat.envMap = studioEnvMap;
-            mat.envMapIntensity = 2.0;
-            break;
+            mat.roughness = 0.12; mat.metalness = 0.65; mat.envMap = studioEnvMap; mat.envMapIntensity = 2.0; break;
         case 'paint_secondary':
-            mat.roughness = 0.15;
-            mat.metalness = 0.55;
-            mat.envMap = studioEnvMap;
-            mat.envMapIntensity = 1.8;
-            break;
+            mat.roughness = 0.15; mat.metalness = 0.55; mat.envMap = studioEnvMap; mat.envMapIntensity = 1.8; break;
         case 'glass':
-            mat.transparent = true;
-            mat.opacity = 0.45;
-            mat.roughness = 0.05;
-            mat.metalness = 0.9;
-            mat.envMap = studioEnvMap;
-            mat.envMapIntensity = 2.8;
-            break;
+            mat.transparent = true; mat.opacity = 0.45; mat.roughness = 0.05; mat.metalness = 0.9; mat.envMap = studioEnvMap; mat.envMapIntensity = 2.8; break;
         case 'lights':
-            mat.roughness = 0.2;
-            mat.emissive = new THREE.Color(0xfff0aa);
-            mat.emissiveIntensity = 1.2;
-            break;
+            mat.roughness = 0.2; mat.emissive = new THREE.Color(0xfff0aa); mat.emissiveIntensity = 1.2; break;
         case 'chrome':
-            mat.roughness = 0.05;
-            mat.metalness = 0.95;
-            mat.envMap = studioEnvMap;
-            mat.envMapIntensity = 3.0;
-            break;
+            mat.roughness = 0.05; mat.metalness = 0.95; mat.envMap = studioEnvMap; mat.envMapIntensity = 3.0; break;
         case 'matte':
-            mat.roughness = 0.9;
-            mat.metalness = 0.0;
-            mat.envMap = null;
-            break;
+            mat.roughness = 0.9; mat.metalness = 0.0; mat.envMap = null; break;
         default:
-            mat.roughness = 0.4;
-            mat.metalness = 0.2;
-            mat.envMap = null;
+            mat.roughness = 0.4; mat.metalness = 0.2; mat.envMap = null;
     }
     mat.needsUpdate = true;
-    showToast(`Shader qo'llandi: ${presetName}`);
+    showToast(`Shader: ${presetName}`);
 }
 
 function assignMaterialToPolygons(matIdx) {
@@ -1335,19 +1249,13 @@ function assignMaterialToPolygons(matIdx) {
     const geom = selectedMesh.geometry;
     const numFaces = geom.index.count / 3;
 
-    // Regroup geometry indices by material
     const groups = {};
     for (let f = 0; f < numFaces; f++) {
         let m = 0;
         for (const g of geom.groups) {
-            if (f * 3 >= g.start && f * 3 < g.start + g.count) {
-                m = g.materialIndex;
-                break;
-            }
+            if (f * 3 >= g.start && f * 3 < g.start + g.count) { m = g.materialIndex; break; }
         }
-        if (selectedPolygonIndices.has(f)) {
-            m = matIdx;
-        }
+        if (selectedPolygonIndices.has(f)) m = matIdx;
         if (!groups[m]) groups[m] = [];
         groups[m].push(geom.index.getX(f * 3), geom.index.getX(f * 3 + 1), geom.index.getX(f * 3 + 2));
     }
@@ -1363,12 +1271,12 @@ function assignMaterialToPolygons(matIdx) {
     geom.setIndex(newIndices);
     geom.groups = newGroups;
 
-    showToast(`Material ${matIdx + 1} tanlangan ${selectedPolygonIndices.size} ta poligonga biriktirildi!`);
+    showToast(`Material ${matIdx + 1} biriktirildi!`);
     updatePolygonHighlight();
 }
 
 // -------------------------------------------------------------
-// 2D UV MAPPING EDITOR (SURFACE -> MAPPING -> EDIT UV)
+// 2D UV MAPPING EDITOR
 // -------------------------------------------------------------
 function setupUVEditor() {
     uvCanvas = document.getElementById('uv-canvas');
@@ -1390,14 +1298,9 @@ function setupUVEditor() {
 }
 
 function openUVEditor() {
-    if (!selectedMesh) {
-        showToast("UV tahrirlash uchun avval detalni tanlang!");
-        return;
-    }
-    const modal = document.getElementById('modal-uv-mapper');
-    if (modal) modal.classList.remove('hidden');
+    if (!selectedMesh) { showToast("UV tahrirlash uchun avval detalni tanlang!"); return; }
+    document.getElementById('modal-uv-mapper').classList.remove('hidden');
 
-    // Store original UV coordinates for Reset
     if (selectedMesh.geometry && selectedMesh.geometry.attributes.uv) {
         uvOriginalCoords = new Float32Array(selectedMesh.geometry.attributes.uv.array);
     }
@@ -1409,24 +1312,18 @@ function drawUVCanvas() {
     const w = uvCanvas.width;
     const h = uvCanvas.height;
 
-    uvCtx.fillStyle = '#0a0d14';
+    uvCtx.fillStyle = '#080a0e';
     uvCtx.fillRect(0, 0, w, h);
 
-    // 1. Draw 10x10 UV Grid
+    // 10x10 Grid
     uvCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     uvCtx.lineWidth = 1;
     for (let i = 0; i <= 10; i++) {
-        const x = (w * i) / 10;
-        const y = (h * i) / 10;
-        uvCtx.beginPath();
-        uvCtx.moveTo(x, 0); uvCtx.lineTo(x, h);
-        uvCtx.stroke();
-        uvCtx.beginPath();
-        uvCtx.moveTo(0, y); uvCtx.lineTo(w, y);
-        uvCtx.stroke();
+        const x = (w * i) / 10; const y = (h * i) / 10;
+        uvCtx.beginPath(); uvCtx.moveTo(x, 0); uvCtx.lineTo(x, h); uvCtx.stroke();
+        uvCtx.beginPath(); uvCtx.moveTo(0, y); uvCtx.lineTo(w, y); uvCtx.stroke();
     }
 
-    // 2. Draw Active Material Texture if available
     const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
     const activeMat = mats[selectedMaterialIndex] || mats[0];
     if (activeMat && activeMat.map && activeMat.map.image) {
@@ -1437,7 +1334,6 @@ function drawUVCanvas() {
         } catch (e) {}
     }
 
-    // 3. Draw UV Wireframe
     const geom = selectedMesh.geometry;
     if (!geom.attributes.uv || !geom.index) return;
 
@@ -1445,27 +1341,20 @@ function drawUVCanvas() {
     const indexAttr = geom.index;
     const numFaces = indexAttr.count / 3;
 
-    uvCtx.lineWidth = 1;
-
     for (let f = 0; f < numFaces; f++) {
         const isSel = selectedPolygonIndices.has(f);
-        uvCtx.strokeStyle = isSel ? '#ef4444' : '#22c55e'; // Bright Red if face selected, else Green
+        uvCtx.strokeStyle = isSel ? '#ef4444' : '#22c55e';
 
         const i0 = indexAttr.getX(f * 3);
         const i1 = indexAttr.getX(f * 3 + 1);
         const i2 = indexAttr.getX(f * 3 + 2);
 
-        const u0 = uvAttr.getX(i0) * w;
-        const v0 = (1.0 - uvAttr.getY(i0)) * h;
-        const u1 = uvAttr.getX(i1) * w;
-        const v1 = (1.0 - uvAttr.getY(i1)) * h;
-        const u2 = uvAttr.getX(i2) * w;
-        const v2 = (1.0 - uvAttr.getY(i2)) * h;
+        const u0 = uvAttr.getX(i0) * w; const v0 = (1.0 - uvAttr.getY(i0)) * h;
+        const u1 = uvAttr.getX(i1) * w; const v1 = (1.0 - uvAttr.getY(i1)) * h;
+        const u2 = uvAttr.getX(i2) * w; const v2 = (1.0 - uvAttr.getY(i2)) * h;
 
         uvCtx.beginPath();
-        uvCtx.moveTo(u0, v0);
-        uvCtx.lineTo(u1, v1);
-        uvCtx.lineTo(u2, v2);
+        uvCtx.moveTo(u0, v0); uvCtx.lineTo(u1, v1); uvCtx.lineTo(u2, v2);
         uvCtx.closePath();
         uvCtx.stroke();
     }
@@ -1480,7 +1369,6 @@ function transformUV(scaleU, scaleV, offsetU, offsetV) {
         arr[i] = (arr[i] - 0.5) * scaleU + 0.5 + offsetU;
         arr[i + 1] = (arr[i + 1] - 0.5) * scaleV + 0.5 + offsetV;
     }
-
     uvAttr.needsUpdate = true;
     drawUVCanvas();
 }
@@ -1491,12 +1379,9 @@ function rotateUV90() {
     const arr = uvAttr.array;
 
     for (let i = 0; i < arr.length; i += 2) {
-        const u = arr[i] - 0.5;
-        const v = arr[i + 1] - 0.5;
-        arr[i] = -v + 0.5;
-        arr[i + 1] = u + 0.5;
+        const u = arr[i] - 0.5; const v = arr[i + 1] - 0.5;
+        arr[i] = -v + 0.5; arr[i + 1] = u + 0.5;
     }
-
     uvAttr.needsUpdate = true;
     drawUVCanvas();
     showToast("🔄 UV 90° burildi");
@@ -1506,26 +1391,20 @@ function flipUVHorizontal() {
     if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
     const uvAttr = selectedMesh.geometry.attributes.uv;
     const arr = uvAttr.array;
-
-    for (let i = 0; i < arr.length; i += 2) {
-        arr[i] = 1.0 - arr[i];
-    }
+    for (let i = 0; i < arr.length; i += 2) arr[i] = 1.0 - arr[i];
     uvAttr.needsUpdate = true;
     drawUVCanvas();
-    showToast("↔️ UV Gorizontal o'girildi (Flip H)");
+    showToast("↔️ UV Gorizontal o'girildi");
 }
 
 function flipUVVertical() {
     if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
     const uvAttr = selectedMesh.geometry.attributes.uv;
     const arr = uvAttr.array;
-
-    for (let i = 1; i < arr.length; i += 2) {
-        arr[i] = 1.0 - arr[i];
-    }
+    for (let i = 1; i < arr.length; i += 2) arr[i] = 1.0 - arr[i];
     uvAttr.needsUpdate = true;
     drawUVCanvas();
-    showToast("↕️ UV Vertikal o'girildi (Flip V - 180°)");
+    showToast("↕️ UV Vertikal o'girildi (180°)");
 }
 
 function fitUVToBounds() {
@@ -1546,57 +1425,38 @@ function fitUVToBounds() {
         arr[i] = (arr[i] - minU) / rangeU;
         arr[i + 1] = (arr[i + 1] - minV) / rangeV;
     }
-
     uvAttr.needsUpdate = true;
     drawUVCanvas();
-    showToast("🔲 UV katakka moslandi (Fit 0..1)");
+    showToast("🔲 UV katakka moslandi");
 }
 
 function resetUV() {
     if (!selectedMesh || !uvOriginalCoords || !selectedMesh.geometry.attributes.uv) return;
-    const uvAttr = selectedMesh.geometry.attributes.uv;
-    uvAttr.array.set(uvOriginalCoords);
-    uvAttr.needsUpdate = true;
+    selectedMesh.geometry.attributes.uv.array.set(uvOriginalCoords);
+    selectedMesh.geometry.attributes.uv.needsUpdate = true;
     drawUVCanvas();
     showToast("↩️ UV boshlang'ich holatga qaytarildi");
 }
 
 // -------------------------------------------------------------
-// ENVIRONMENT MAP GENERATOR & SHADERS
+// ENVIRONMENT MAP & SHADERS
 // -------------------------------------------------------------
 function createStudioEnvMap() {
     const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 512;
+    canvas.width = 1024; canvas.height = 512;
     const ctx = canvas.getContext('2d');
 
     const skyGrad = ctx.createLinearGradient(0, 0, 0, 256);
-    skyGrad.addColorStop(0, '#1e3a8a');
-    skyGrad.addColorStop(0.35, '#38bdf8');
-    skyGrad.addColorStop(0.85, '#bae6fd');
-    skyGrad.addColorStop(1, '#ffffff');
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, 1024, 256);
+    skyGrad.addColorStop(0, '#1e3a8a'); skyGrad.addColorStop(0.35, '#38bdf8'); skyGrad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, 1024, 256);
 
     const sunGrad = ctx.createRadialGradient(512, 90, 5, 512, 90, 240);
-    sunGrad.addColorStop(0, '#ffffff');
-    sunGrad.addColorStop(0.25, 'rgba(255, 250, 230, 0.95)');
-    sunGrad.addColorStop(0.6, 'rgba(255, 220, 150, 0.4)');
-    sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = sunGrad;
-    ctx.fillRect(0, 0, 1024, 256);
+    sunGrad.addColorStop(0, '#ffffff'); sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sunGrad; ctx.fillRect(0, 0, 1024, 256);
 
     const groundGrad = ctx.createLinearGradient(0, 256, 0, 512);
-    groundGrad.addColorStop(0, '#0f172a');
-    groundGrad.addColorStop(0.2, '#1e293b');
-    groundGrad.addColorStop(0.6, '#090d16');
-    groundGrad.addColorStop(1, '#020617');
-    ctx.fillStyle = groundGrad;
-    ctx.fillRect(0, 256, 1024, 256);
-
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.fillRect(120, 50, 160, 90);
-    ctx.fillRect(740, 50, 160, 90);
+    groundGrad.addColorStop(0, '#0f172a'); groundGrad.addColorStop(1, '#020617');
+    ctx.fillStyle = groundGrad; ctx.fillRect(0, 256, 1024, 256);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -1614,7 +1474,7 @@ function toggleShaderMode() {
         scene.environment = studioEnvMap;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.25;
-        showToast("✨ Shader: O'yindagi yaltiroq Carpaint yoqildi!");
+        showToast("✨ Shader: Yaltiroq Carpaint yoqildi!");
     } else {
         scene.environment = null;
         renderer.toneMapping = THREE.NoToneMapping;
@@ -1666,9 +1526,7 @@ function toggleUVFlip() {
         if (obj instanceof THREE.Mesh && obj.geometry && obj.geometry.attributes.uv) {
             const uvAttr = obj.geometry.attributes.uv;
             const array = uvAttr.array;
-            for (let i = 1; i < array.length; i += 2) {
-                array[i] = 1.0 - array[i];
-            }
+            for (let i = 1; i < array.length; i += 2) array[i] = 1.0 - array[i];
             uvAttr.needsUpdate = true;
         }
     });
@@ -1679,90 +1537,42 @@ function toggleUVFlip() {
 // UI SETUP & GENERAL EVENT HANDLERS
 // -------------------------------------------------------------
 function setupUIEvents() {
-    // 1. File Input Handlers
-    const fileInput = document.getElementById('dff-file-input');
-    fileInput.addEventListener('change', (e) => {
-        const fileList = Array.from(e.target.files);
-        if (fileList.length === 0) return;
-
-        const dffFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.dff'));
-        const txdFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.txd'));
-        const imgFiles = fileList.filter(f => /\.(png|jpe?g)$/i.test(f.name));
-
-        if (dffFiles.length > 0) {
-            const dffFile = dffFiles[0];
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const model = new DFFModel();
-                    model.fileName = dffFile.name.replace(/\.[^/.]+$/, "");
-                    model.parse(event.target.result);
-                    buildThreeSceneFromDFF(model);
-
-                    txdFiles.forEach(tf => {
-                        const tr = new FileReader();
-                        tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
-                        tr.readAsArrayBuffer(tf);
-                    });
-                    imgFiles.forEach(im => processImageFile(im));
-                } catch (err) {
-                    alert("DFF ochishda xatolik: " + err.message);
-                }
-            };
-            reader.readAsArrayBuffer(dffFile);
-        } else if (txdFiles.length > 0) {
-            txdFiles.forEach(tf => {
-                const tr = new FileReader();
-                tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
-                tr.readAsArrayBuffer(tf);
-            });
-        }
-    });
-
+    // Native File Picker Bridge
     const triggerFilePicker = (mode) => {
         if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
             window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: mode });
         } else {
-            if (mode === "txd") txdInput.click();
-            else if (mode === "merge") mergeInput.click();
-            else fileInput.click();
+            if (mode === "txd") document.getElementById('txd-file-input').click();
+            else if (mode === "merge") document.getElementById('dff-merge-input').click();
+            else document.getElementById('dff-file-input').click();
         }
     };
 
+    // File Menu Toggle
+    const btnMenuFile = document.getElementById('btn-menu-file');
+    const menuFile = document.getElementById('menu-file');
+    btnMenuFile.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menuFile.classList.toggle('hidden');
+    });
+    document.addEventListener('click', () => menuFile.classList.add('hidden'));
+
     document.getElementById('btn-open-file').addEventListener('click', () => triggerFilePicker("open"));
-
-    const txdInput = document.getElementById('txd-file-input');
-    txdInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files);
-        files.forEach(f => {
-            if (f.name.toLowerCase().endsWith('.txd')) {
-                const r = new FileReader();
-                r.onload = (ev) => processTXDData(ev.target.result, f.name);
-                r.readAsArrayBuffer(f);
-            } else if (/\.(png|jpe?g)$/i.test(f.name)) {
-                processImageFile(f);
-            }
-        });
-    });
     document.getElementById('btn-open-txd').addEventListener('click', () => triggerFilePicker("txd"));
-
-    // Merge DFF
-    const mergeInput = document.getElementById('dff-merge-input');
-    mergeInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => mergeExternalDFF(event.target.result, file.name);
-        reader.readAsArrayBuffer(file);
-    });
     document.getElementById('btn-merge-file').addEventListener('click', () => triggerFilePicker("merge"));
     document.getElementById('btn-hier-add-dff').addEventListener('click', () => triggerFilePicker("merge"));
-
-    // Export DFF
     document.getElementById('btn-export-dff').addEventListener('click', exportCurrentDFF);
+    document.getElementById('btn-quick-export').addEventListener('click', exportCurrentDFF);
+
+    // Fallback file input listeners
+    document.getElementById('dff-file-input').addEventListener('change', handleFileInput);
+    document.getElementById('txd-file-input').addEventListener('change', handleTXDInput);
+    document.getElementById('dff-merge-input').addEventListener('change', handleMergeInput);
 
     // Quad View Toggle
     document.getElementById('btn-toggle-quad-mode').addEventListener('click', toggleQuadMode);
+    document.getElementById('btn-quick-switch-quad').addEventListener('click', toggleQuadMode);
+
     document.querySelectorAll('.vp-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1770,7 +1580,7 @@ function setupUIEvents() {
         });
     });
 
-    // Level Buttons
+    // Edit Level Buttons (1: Nuqta, 2: Qirra, 3: Poligon, 4: Detal)
     document.querySelectorAll('.level-btn').forEach(b => {
         b.addEventListener('click', () => setEditLevel(parseInt(b.dataset.level)));
     });
@@ -1779,11 +1589,16 @@ function setupUIEvents() {
     document.getElementById('btn-act-detach').addEventListener('click', detachSelectedPolygons);
     document.getElementById('btn-act-delete').addEventListener('click', deleteSelectedElements);
     document.getElementById('btn-act-flip').addEventListener('click', flipSelectedPolygons);
+    document.getElementById('btn-act-assign-mat').addEventListener('click', openMaterialEditorModal);
     document.getElementById('btn-act-weld').addEventListener('click', () => {
         document.getElementById('modal-weld-threshold').classList.remove('hidden');
     });
-    document.getElementById('btn-act-assign-mat').addEventListener('click', () => {
-        openMaterialEditorModal();
+    document.getElementById('btn-act-clear').addEventListener('click', () => {
+        selectedPolygonIndices.clear();
+        selectedVertexIndices.clear();
+        updatePolygonHighlight();
+        updateVertexPointsHelper();
+        document.getElementById('action-floating-bar').classList.add('hidden');
     });
 
     // Weld threshold modal
@@ -1800,81 +1615,7 @@ function setupUIEvents() {
         document.getElementById('modal-weld-threshold').classList.add('hidden');
     });
 
-    // Selection mode buttons
-    document.getElementById('btn-sel-all').addEventListener('click', () => {
-        if (!selectedMesh) return;
-        if (currentEditLevel === 3) {
-            const numFaces = selectedMesh.geometry.index.count / 3;
-            selectedPolygonIndices = new Set(Array.from({ length: numFaces }, (_, i) => i));
-            updatePolygonHighlight();
-        } else if (currentEditLevel === 1) {
-            const numVerts = selectedMesh.geometry.attributes.position.count;
-            selectedVertexIndices = new Set(Array.from({ length: numVerts }, (_, i) => i));
-            updateVertexPointsHelper();
-        }
-    });
-
-    document.getElementById('btn-sel-none').addEventListener('click', () => {
-        selectedPolygonIndices.clear();
-        selectedVertexIndices.clear();
-        updatePolygonHighlight();
-        updateVertexPointsHelper();
-    });
-
-    document.getElementById('btn-sel-invert').addEventListener('click', () => {
-        if (!selectedMesh) return;
-        if (currentEditLevel === 3) {
-            const numFaces = selectedMesh.geometry.index.count / 3;
-            const inverted = new Set();
-            for (let i = 0; i < numFaces; i++) {
-                if (!selectedPolygonIndices.has(i)) inverted.add(i);
-            }
-            selectedPolygonIndices = inverted;
-            updatePolygonHighlight();
-        } else if (currentEditLevel === 1) {
-            const numVerts = selectedMesh.geometry.attributes.position.count;
-            const inverted = new Set();
-            for (let i = 0; i < numVerts; i++) {
-                if (!selectedVertexIndices.has(i)) inverted.add(i);
-            }
-            selectedVertexIndices = inverted;
-            updateVertexPointsHelper();
-        }
-    });
-
-    // ZModeler Menu Dropdowns
-    const menuConfigs = [
-        { btn: 'btn-menu-modify', menu: 'menu-modify' },
-        { btn: 'btn-menu-surface', menu: 'menu-surface' },
-        { btn: 'btn-menu-vertices', menu: 'menu-vertices' },
-        { btn: 'btn-menu-polygons', menu: 'menu-polygons' }
-    ];
-
-    menuConfigs.forEach(cfg => {
-        const btn = document.getElementById(cfg.btn);
-        const menu = document.getElementById(cfg.menu);
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            menuConfigs.forEach(c => {
-                if (c.menu !== cfg.menu) document.getElementById(c.menu).classList.add('hidden');
-            });
-            menu.classList.toggle('hidden');
-        });
-    });
-
-    document.addEventListener('click', () => {
-        menuConfigs.forEach(c => document.getElementById(c.menu).classList.add('hidden'));
-    });
-
-    // Handle Dropdown actions
-    document.querySelectorAll('.menu-item').forEach(item => {
-        item.addEventListener('click', () => {
-            const action = item.dataset.action;
-            handleMenuAction(action);
-        });
-    });
-
-    // Gizmo Mode buttons
+    // Gizmo Switcher
     const gizmoBtns = document.querySelectorAll('.gizmo-btn');
     gizmoBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1924,13 +1665,29 @@ function setupUIEvents() {
         }
     });
 
-    // Drawers toggle
+    // Drawers & Backdrop Management (Easy toggle and dismiss on tap outside!)
     const leftDrawer = document.getElementById('drawer-hierarchy');
     const rightDrawer = document.getElementById('drawer-inspector');
-    document.getElementById('btn-toggle-hierarchy').addEventListener('click', () => leftDrawer.classList.toggle('collapsed'));
-    document.getElementById('btn-close-hierarchy').addEventListener('click', () => leftDrawer.classList.add('collapsed'));
-    document.getElementById('btn-toggle-inspector').addEventListener('click', () => rightDrawer.classList.toggle('collapsed'));
-    document.getElementById('btn-close-inspector').addEventListener('click', () => rightDrawer.classList.add('collapsed'));
+    const backdrop = document.getElementById('drawer-backdrop');
+
+    const toggleDrawer = (drawerToOpen, drawerToClose) => {
+        drawerToClose.classList.add('collapsed');
+        drawerToOpen.classList.toggle('collapsed');
+        const isOpen = !drawerToOpen.classList.contains('collapsed');
+        backdrop.classList.toggle('active', isOpen);
+    };
+
+    const closeAllDrawers = () => {
+        leftDrawer.classList.add('collapsed');
+        rightDrawer.classList.add('collapsed');
+        backdrop.classList.remove('active');
+    };
+
+    document.getElementById('btn-toggle-hierarchy').addEventListener('click', () => toggleDrawer(leftDrawer, rightDrawer));
+    document.getElementById('btn-toggle-inspector').addEventListener('click', () => toggleDrawer(rightDrawer, leftDrawer));
+    document.getElementById('btn-close-hierarchy').addEventListener('click', closeAllDrawers);
+    document.getElementById('btn-close-inspector').addEventListener('click', closeAllDrawers);
+    backdrop.addEventListener('click', closeAllDrawers);
 
     // Inspector Tabs
     const tabBtns = document.querySelectorAll('.tab-btn');
@@ -1956,7 +1713,7 @@ function setupUIEvents() {
         showToast(`Nom o'zgartirildi: ${newName}`);
     });
 
-    // Stance Tuning Sliders
+    // Stance Tuning Sliders & Coordinate inputs
     setupStanceTuning();
     setupCoordinateInputs();
 
@@ -1972,11 +1729,68 @@ function setupUIEvents() {
     document.getElementById('btn-add-dummy').addEventListener('click', showAddDummyDialog);
 }
 
+function handleFileInput(e) {
+    const fileList = Array.from(e.target.files);
+    if (fileList.length === 0) return;
+    const dffFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.dff'));
+    const txdFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.txd'));
+    const imgFiles = fileList.filter(f => /\.(png|jpe?g)$/i.test(f.name));
+
+    if (dffFiles.length > 0) {
+        const dffFile = dffFiles[0];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const model = new DFFModel();
+                model.fileName = dffFile.name.replace(/\.[^/.]+$/, "");
+                model.parse(event.target.result);
+                buildThreeSceneFromDFF(model);
+                txdFiles.forEach(tf => {
+                    const tr = new FileReader();
+                    tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
+                    tr.readAsArrayBuffer(tf);
+                });
+                imgFiles.forEach(im => processImageFile(im));
+            } catch (err) {
+                alert("DFF ochishda xatolik: " + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(dffFile);
+    }
+}
+
+function handleTXDInput(e) {
+    const files = Array.from(e.target.files);
+    files.forEach(f => {
+        if (f.name.toLowerCase().endsWith('.txd')) {
+            const r = new FileReader();
+            r.onload = (ev) => processTXDData(ev.target.result, f.name);
+            r.readAsArrayBuffer(f);
+        } else if (/\.(png|jpe?g)$/i.test(f.name)) {
+            processImageFile(f);
+        }
+    });
+}
+
+function handleMergeInput(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => mergeExternalDFF(event.target.result, file.name);
+    reader.readAsArrayBuffer(file);
+}
+
+function closeAllDrawers() {
+    const leftDrawer = document.getElementById('drawer-hierarchy');
+    const rightDrawer = document.getElementById('drawer-inspector');
+    const backdrop = document.getElementById('drawer-backdrop');
+    if (leftDrawer) leftDrawer.classList.add('collapsed');
+    if (rightDrawer) rightDrawer.classList.add('collapsed');
+    if (backdrop) backdrop.classList.remove('active');
+}
+
 function handleMenuAction(action) {
     switch (action) {
-        case 'gizmo-translate': transformControls.setMode('translate'); break;
-        case 'gizmo-rotate': transformControls.setMode('rotate'); break;
-        case 'gizmo-scale': transformControls.setMode('scale'); break;
         case 'mirror-x': mirrorSelectedNode('x'); break;
         case 'mirror-y': mirrorSelectedNode('y'); break;
         case 'mirror-z': mirrorSelectedNode('z'); break;
@@ -1984,7 +1798,7 @@ function handleMenuAction(action) {
         case 'calc-normals':
             if (selectedMesh) {
                 selectedMesh.geometry.computeVertexNormals();
-                showToast("Normallar silliq hisoblandi!");
+                showToast("Normallar hisoblandi!");
             }
             break;
         case 'flip-normals':
@@ -1993,27 +1807,16 @@ function handleMenuAction(action) {
                 if (normAttr) {
                     for (let i = 0; i < normAttr.array.length; i++) normAttr.array[i] *= -1;
                     normAttr.needsUpdate = true;
-                    showToast("Normallar teskarilandi (Invert)!");
+                    showToast("Normallar teskarilandi!");
                 }
             }
             break;
-        case 'open-uv-mapper': openUVEditor(); break;
-        case 'weld-vertices': document.getElementById('modal-weld-threshold').classList.remove('hidden'); break;
-        case 'delete-vertices': deleteSelectedElements(); break;
-        case 'detach-polygons': detachSelectedPolygons(); break;
-        case 'flip-polygons': flipSelectedPolygons(); break;
-        case 'assign-material': openMaterialEditorModal(); break;
-        case 'delete-polygons': deleteSelectedElements(); break;
     }
 }
 
 function mirrorSelectedNode(axis) {
-    if (!selectedNode) {
-        showToast("Avval detalni tanlang!");
-        return;
-    }
+    if (!selectedNode) { showToast("Avval detalni tanlang!"); return; }
     selectedNode.scale[axis] *= -1;
-    // Invert polygon winding order so faces remain outwardly facing
     selectedNode.traverse(c => {
         if (c instanceof THREE.Mesh && c.geometry && c.geometry.index) {
             const idxAttr = c.geometry.index;
@@ -2033,13 +1836,9 @@ function centerNodePivot() {
     if (!selectedNode) return;
     const box = new THREE.Box3().setFromObject(selectedNode);
     const center = box.getCenter(new THREE.Vector3());
-
     const delta = center.clone().sub(selectedNode.position);
     selectedNode.position.copy(center);
-
-    selectedNode.children.forEach(c => {
-        c.position.sub(delta);
-    });
+    selectedNode.children.forEach(c => c.position.sub(delta));
     showToast("🎯 Pivot detal markaziga to'g'rilandi!");
 }
 
@@ -2155,7 +1954,8 @@ function updateInspectorCoordinates(grp) {
 // -------------------------------------------------------------
 // NODE SELECTION & HIERARCHY TREE
 // -------------------------------------------------------------
-function selectNodeByIndex(index, specificMesh = null) {
+// openInspectorDrawer parameter: false by default to prevent unwanted clutter!
+function selectNodeByIndex(index, specificMesh = null, openDrawer = false) {
     if (index < 0 || index >= frameGroups.length) return;
     const grp = frameGroups[index];
     selectedNode = grp;
@@ -2173,11 +1973,14 @@ function selectNodeByIndex(index, specificMesh = null) {
         item.classList.toggle('selected', parseInt(item.dataset.index) === index);
     });
 
-    document.getElementById('drawer-inspector').classList.remove('collapsed');
     document.getElementById('inspector-title').textContent = grp.name;
     document.getElementById('input-node-name').value = grp.name;
-
     updateInspectorCoordinates(grp);
+
+    if (openDrawer) {
+        document.getElementById('drawer-inspector').classList.remove('collapsed');
+        document.getElementById('drawer-backdrop').classList.add('active');
+    }
 
     selectedPolygonIndices.clear();
     selectedVertexIndices.clear();
@@ -2245,7 +2048,7 @@ function renderHierarchyList() {
         item.appendChild(info);
         item.appendChild(actions);
 
-        item.addEventListener('click', () => selectNodeByIndex(idx));
+        item.addEventListener('click', () => selectNodeByIndex(idx, null, false));
 
         listContainer.appendChild(item);
     });
@@ -2269,7 +2072,7 @@ function moveNodeOrder(index, direction) {
     frameGroups[targetIdx].userData.frameIndex = targetIdx;
 
     renderHierarchyList();
-    selectNodeByIndex(targetIdx);
+    selectNodeByIndex(targetIdx, null, false);
 }
 
 function reparentSelectedNode() {
@@ -2357,7 +2160,7 @@ function showAddDummyDialog() {
     else currentRootGroup.add(group);
 
     renderHierarchyList();
-    selectNodeByIndex(newIndex);
+    selectNodeByIndex(newIndex, null, false);
     showToast(`Yangi dummy qo'shildi: ${newFrame.name}`);
 }
 
@@ -2370,7 +2173,6 @@ function exportCurrentDFF() {
         return;
     }
 
-    // 1. Sync frame positions and rotations
     for (let i = 0; i < currentDFF.frames.length; i++) {
         const grp = frameGroups[i];
         if (!grp) continue;
@@ -2389,7 +2191,6 @@ function exportCurrentDFF() {
         currentDFF.frames[i].name = grp.name;
     }
 
-    // 2. Sync modified vertices, normals, UVs and triangles from Three.js scene back to DFF geometries
     frameGroups.forEach(grp => {
         grp.children.forEach(c => {
             if (c instanceof THREE.Mesh && !c.name.includes("__dummy_") && c.userData.geometryIndex !== undefined) {
@@ -2399,7 +2200,6 @@ function exportCurrentDFF() {
                     const normAttr = c.geometry.attributes.normal;
                     const uvAttr = c.geometry.attributes.uv;
 
-                    // Sync Vertices
                     if (posAttr) {
                         geom.numVertices = posAttr.count;
                         geom.vertices = [];
@@ -2408,7 +2208,6 @@ function exportCurrentDFF() {
                         }
                     }
 
-                    // Sync Normals
                     if (normAttr) {
                         geom.normals = [];
                         for (let n = 0; n < normAttr.count; n++) {
@@ -2416,7 +2215,6 @@ function exportCurrentDFF() {
                         }
                     }
 
-                    // Sync UVs
                     if (uvAttr && geom.texCoordSets && geom.texCoordSets.length > 0) {
                         geom.texCoordSets[0] = [];
                         for (let u = 0; u < uvAttr.count; u++) {
@@ -2427,7 +2225,6 @@ function exportCurrentDFF() {
                         }
                     }
 
-                    // Sync Triangles & BinMesh
                     if (c.geometry.index) {
                         const indexAttr = c.geometry.index;
                         const numTris = indexAttr.count / 3;
@@ -2449,7 +2246,6 @@ function exportCurrentDFF() {
                             binMeshes.push({ matIndex: 0, indices: allIdx });
                         }
 
-                        // Rebuild triangles list for legacy struct
                         for (let t = 0; t < numTris; t++) {
                             const v1 = indexAttr.getX(t * 3);
                             const v2 = indexAttr.getX(t * 3 + 1);
@@ -2468,7 +2264,7 @@ function exportCurrentDFF() {
 
                         if (!geom.binMesh) geom.binMesh = { flags: 0, numMeshes: binMeshes.length, totalIndices: indexAttr.count, meshes: binMeshes };
                         else {
-                            geom.binMesh.flags = 0; // Standard triangle list
+                            geom.binMesh.flags = 0;
                             geom.binMesh.numMeshes = binMeshes.length;
                             geom.binMesh.totalIndices = indexAttr.count;
                             geom.binMesh.meshes = binMeshes;
@@ -2506,10 +2302,7 @@ function exportCurrentDFF() {
 }
 
 function mergeExternalDFF(arrayBuffer, fileName) {
-    if (!currentDFF) {
-        showToast("Avval asosiy modelni oching!");
-        return;
-    }
+    if (!currentDFF) { showToast("Avval asosiy modelni oching!"); return; }
     try {
         const otherModel = new DFFModel();
         otherModel.parse(arrayBuffer);
@@ -2597,10 +2390,9 @@ function showToast(msg) {
     if (!toast) return;
     toast.textContent = msg;
     toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 2500);
+    setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
-// Native iOS Bridge hook
 window.onNativeFileOpened = function(base64Data, fileName, mode) {
     try {
         const binary = window.atob(base64Data);

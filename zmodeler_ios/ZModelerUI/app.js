@@ -1,19 +1,22 @@
 /**
- * Diro 3D Studio (ZModeler iOS) - Core Application Logic
- * Supports:
- * - 3D Viewport with Orbit & Transform Gizmos (Z-up)
- * - DFF Import & Export with 100% GTA SA binary compatibility
- * - Merge / Append external DFF models into hierarchy
- * - Rename parts & frames
- * - Reorder & Reparent nodes in hierarchy (Move Up, Move Down, Reparent)
- * - Quick Stance / Posadka tuning
- * - Full Material Editor (Color picker, Ambient/Specular, Texture rename & PNG preview)
+ * Diro 3D Studio - ZModeler 2 iOS Core Application Engine
+ * 1:1 PC ZModeler 2 Replica with:
+ * - 4-Viewport CAD Layout (Top, Front, Left, 3D User) + Scissor Rendering + Maximize/Space toggle
+ * - 4 Editing Levels: 1: Vertex Mode (Point Cloud, Gizmo centroid, Weld/Fuse), 2: Edge Mode, 3: Polygon Mode (Bright Red ZM2 highlight, Detach, Flip, Assign Mat), 4: Object Mode
+ * - Complete RenderWare Tristrip (flags & 1) & 32-bit Index BufferGeometry (resolves 34MB+ model scrambling)
+ * - Full ZModeler 2 Material Editor Window (Hotkey 'E', Shaders: Paint 1/2, Glass, Lights, Chrome, Matte)
+ * - Interactive 2D UV Mapping Editor Window (Live 3D sync, Move, Scale, Rotate 90°, Flip H/V, Fit 0..1)
+ * - ZModeler 2 Command Hierarchy (Modify, Surface, Vertices, Polygons)
+ * - Full GTA San Andreas Binary DFF/TXD Import & Export
  */
 
-// Configure Three.js for GTA SA coordinate system (Z is UP)
+// Configure Three.js for RenderWare GTA SA Coordinate System (Z is UP, X is Right, Y is Forward)
 THREE.Object3D.DefaultUp.set(0, 0, 1);
 
-let scene, camera, renderer, orbitControls, transformControls;
+// Global 3D Engine Variables
+let scene, renderer;
+let camera3D, cameraTop, cameraFront, cameraLeft;
+let orbitControls, transformControls;
 let currentDFF = null;
 let currentRootGroup = null;
 let frameGroups = [];
@@ -21,23 +24,72 @@ let selectedNode = null;
 let selectedMesh = null;
 let selectedMaterialIndex = 0;
 let initialWheelPositions = {};
+
+// Viewport System
+let isQuadMode = false;
+let activeViewportIndex = 3; // 0: Top, 1: Front, 2: Left, 3: 3D User
+let viewports = [];
+
+// Edit Levels: 1: Vertex, 2: Edge, 3: Polygon, 4: Object
+let currentEditLevel = 4;
+let selectedPolygonIndices = new Set();
+let selectedVertexIndices = new Set();
+let polygonHighlightMesh = null;
+let vertexPointsHelper = null;
+let vertexGizmoTarget = null;
+
+// Display Flags
 let isWireframe = false;
 let showDummies = true;
 let isShaderMode = false;
 let isUVFlipped = false;
 let studioEnvMap = null;
+let loadedTexturesPool = {};
+
+// UV Editor State
+let uvCanvas, uvCtx;
+let uvOriginalCoords = null;
 
 function init() {
     const container = document.getElementById('viewport-container');
 
     // 1. Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f1117);
+    scene.background = new THREE.Color(0x0e1117);
 
-    // 2. Camera (Z is UP)
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
-    camera.up.set(0, 0, 1);
-    camera.position.set(-5, -6, 3);
+    // 2. Multi-Cameras (RenderWare Z-Up)
+    const aspect = window.innerWidth / window.innerHeight;
+    
+    // 3D User Perspective Camera
+    camera3D = new THREE.PerspectiveCamera(45, aspect, 0.1, 500);
+    camera3D.up.set(0, 0, 1);
+    camera3D.position.set(-5, -6, 3);
+
+    // Orthographic Top Camera (Looking down -Z)
+    const frustumSize = 8;
+    cameraTop = new THREE.OrthographicCamera(-frustumSize * aspect / 2, frustumSize * aspect / 2, frustumSize / 2, -frustumSize / 2, 0.1, 500);
+    cameraTop.up.set(0, 1, 0); // Y is up when looking down Z
+    cameraTop.position.set(0, 0, 20);
+    cameraTop.lookAt(0, 0, 0);
+
+    // Orthographic Front Camera (Looking along -Y)
+    cameraFront = new THREE.OrthographicCamera(-frustumSize * aspect / 2, frustumSize * aspect / 2, frustumSize / 2, -frustumSize / 2, 0.1, 500);
+    cameraFront.up.set(0, 0, 1);
+    cameraFront.position.set(0, 20, 0);
+    cameraFront.lookAt(0, 0, 0);
+
+    // Orthographic Left Camera (Looking along +X)
+    cameraLeft = new THREE.OrthographicCamera(-frustumSize * aspect / 2, frustumSize * aspect / 2, frustumSize / 2, -frustumSize / 2, 0.1, 500);
+    cameraLeft.up.set(0, 0, 1);
+    cameraLeft.position.set(-20, 0, 0);
+    cameraLeft.lookAt(0, 0, 0);
+
+    viewports = [
+        { name: "Top", camera: cameraTop, x: 0, y: 0.5, w: 0.5, h: 0.5 },
+        { name: "Front", camera: cameraFront, x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+        { name: "Left", camera: cameraLeft, x: 0, y: 0, w: 0.5, h: 0.5 },
+        { name: "3D User", camera: camera3D, x: 0.5, y: 0, w: 0.5, h: 0.5 }
+    ];
 
     // 3. Renderer with Antialiasing
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -64,58 +116,427 @@ function init() {
     scene.add(grid);
 
     // 6. OrbitControls
-    orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+    orbitControls = new THREE.OrbitControls(camera3D, renderer.domElement);
     orbitControls.enableDamping = true;
     orbitControls.dampingFactor = 0.08;
     orbitControls.target.set(0, 0, 0.5);
 
     // 7. TransformControls (Gizmo)
-    transformControls = new THREE.TransformControls(camera, renderer.domElement);
+    transformControls = new THREE.TransformControls(camera3D, renderer.domElement);
     transformControls.size = 0.85;
     transformControls.setSpace('local');
     transformControls.addEventListener('dragging-changed', function (event) {
         orbitControls.enabled = !event.value;
     });
     transformControls.addEventListener('change', function () {
-        if (selectedNode) {
+        if (currentEditLevel === 4 && selectedNode) {
             updateInspectorCoordinates(selectedNode);
+        } else if (currentEditLevel === 1 && vertexGizmoTarget) {
+            applyVertexGizmoDrag();
         }
     });
     scene.add(transformControls);
 
-    // 8. Event Listeners
+    // Vertex dummy target for gizmo attachment
+    vertexGizmoTarget = new THREE.Object3D();
+    scene.add(vertexGizmoTarget);
+
+    // 8. Helpers for Polygons & Vertices
+    initEditHelpers();
+
+    // 9. Event Listeners
     window.addEventListener('resize', onWindowResize);
+    window.addEventListener('keydown', handleGlobalKeydown);
     setupRaycaster();
     setupUIEvents();
+    setupMaterialEditorModal();
+    setupUVEditor();
 
-    // 9. Animation Loop
+    // 10. Animation Loop
     animate();
 }
 
+// Global Keyboard Shortcuts (Space: Toggle Viewport, E: Material Editor, 1-4: Edit Levels)
+function handleGlobalKeydown(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        toggleQuadMode();
+    } else if (e.key === 'e' || e.key === 'E') {
+        openMaterialEditorModal();
+    } else if (e.key === '1') {
+        setEditLevel(1);
+    } else if (e.key === '2') {
+        setEditLevel(2);
+    } else if (e.key === '3') {
+        setEditLevel(3);
+    } else if (e.key === '4') {
+        setEditLevel(4);
+    }
+}
+
+// 4-Viewport CAD Scissor Render Loop
 function animate() {
     requestAnimationFrame(animate);
+
     orbitControls.update();
-    renderer.render(scene, camera);
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    if (!isQuadMode) {
+        // Single Active Viewport Mode (Full Screen)
+        renderer.setScissorTest(false);
+        renderer.setViewport(0, 0, w, h);
+        const cam = viewports[activeViewportIndex].camera;
+        renderer.render(scene, cam);
+    } else {
+        // 4-Viewport CAD Grid Mode
+        renderer.setScissorTest(true);
+
+        const halfW = Math.floor(w / 2);
+        const halfH = Math.floor(h / 2);
+
+        // Viewport 0: Top (Top-Left)
+        renderer.setViewport(0, halfH, halfW, halfH);
+        renderer.setScissor(0, halfH, halfW, halfH);
+        renderer.render(scene, cameraTop);
+
+        // Viewport 1: Front (Top-Right)
+        renderer.setViewport(halfW, halfH, halfW, halfH);
+        renderer.setScissor(halfW, halfH, halfW, halfH);
+        renderer.render(scene, cameraFront);
+
+        // Viewport 2: Left (Bottom-Left)
+        renderer.setViewport(0, 0, halfW, halfH);
+        renderer.setScissor(0, 0, halfW, halfH);
+        renderer.render(scene, cameraLeft);
+
+        // Viewport 3: 3D User (Bottom-Right)
+        renderer.setViewport(halfW, 0, halfW, halfH);
+        renderer.setScissor(halfW, 0, halfW, halfH);
+        renderer.render(scene, camera3D);
+    }
 }
 
 function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const aspect = w / h;
+
+    camera3D.aspect = aspect;
+    camera3D.updateProjectionMatrix();
+
+    const frustumSize = 8;
+    [cameraTop, cameraFront, cameraLeft].forEach(cam => {
+        cam.left = -frustumSize * aspect / 2;
+        cam.right = frustumSize * aspect / 2;
+        cam.top = frustumSize / 2;
+        cam.bottom = -frustumSize / 2;
+        cam.updateProjectionMatrix();
+    });
+
+    renderer.setSize(w, h);
+    updateActiveViewportBorder();
 }
 
-// Tap in 3D to select car part
+function toggleQuadMode() {
+    isQuadMode = !isQuadMode;
+    const quadOverlay = document.getElementById('quad-container');
+    const toggleBtn = document.getElementById('btn-toggle-quad-mode');
+
+    if (isQuadMode) {
+        quadOverlay.classList.remove('hidden');
+        if (toggleBtn) toggleBtn.classList.add('active');
+        showToast("⊞ 4-Oyna Rejimi (Top, Front, Left, 3D User)");
+    } else {
+        quadOverlay.classList.add('hidden');
+        if (toggleBtn) toggleBtn.classList.remove('active');
+        showToast("▢ 1-Oyna Rejimi (" + viewports[activeViewportIndex].name + ")");
+    }
+    updateActiveViewportBorder();
+}
+
+function maximizeViewport(vpIndex) {
+    activeViewportIndex = vpIndex;
+    isQuadMode = false;
+    document.getElementById('quad-container').classList.add('hidden');
+    const toggleBtn = document.getElementById('btn-toggle-quad-mode');
+    if (toggleBtn) toggleBtn.classList.remove('active');
+    showToast(`Oyna: ${viewports[vpIndex].name} to'liq ekranga ochildi`);
+}
+
+function updateActiveViewportBorder() {
+    const border = document.getElementById('active-vp-border');
+    if (!border || !isQuadMode) {
+        if (border) border.style.display = 'none';
+        return;
+    }
+    border.style.display = 'block';
+    const halfW = window.innerWidth / 2;
+    const halfH = window.innerHeight / 2;
+
+    switch (activeViewportIndex) {
+        case 0: border.style.top = '0'; border.style.left = '0'; border.style.width = halfW + 'px'; border.style.height = halfH + 'px'; break;
+        case 1: border.style.top = '0'; border.style.left = halfW + 'px'; border.style.width = halfW + 'px'; border.style.height = halfH + 'px'; break;
+        case 2: border.style.top = halfH + 'px'; border.style.left = '0'; border.style.width = halfW + 'px'; border.style.height = halfH + 'px'; break;
+        case 3: border.style.top = halfH + 'px'; border.style.left = halfW + 'px'; border.style.width = halfW + 'px'; border.style.height = halfH + 'px'; break;
+    }
+}
+
+// -------------------------------------------------------------
+// EDITING LEVELS (1: VERTEX, 2: EDGE, 3: POLYGON, 4: OBJECT)
+// -------------------------------------------------------------
+function initEditHelpers() {
+    // Polygon Highlight Mesh: classic bright red overlay (ZModeler 2)
+    const polyGeo = new THREE.BufferGeometry();
+    const polyMat = new THREE.MeshBasicMaterial({
+        color: 0xff1e1e,
+        side: THREE.DoubleSide,
+        depthTest: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2
+    });
+    polygonHighlightMesh = new THREE.Mesh(polyGeo, polyMat);
+    polygonHighlightMesh.visible = false;
+    scene.add(polygonHighlightMesh);
+
+    // Vertex Points Helper (Cyan point cloud)
+    const vertGeo = new THREE.BufferGeometry();
+    const vertMat = new THREE.PointsMaterial({
+        size: 7,
+        vertexColors: true,
+        sizeAttenuation: false,
+        depthTest: false
+    });
+    vertexPointsHelper = new THREE.Points(vertGeo, vertMat);
+    vertexPointsHelper.visible = false;
+    scene.add(vertexPointsHelper);
+}
+
+function setEditLevel(level) {
+    currentEditLevel = level;
+
+    // Update level buttons in sub-nav
+    document.querySelectorAll('.level-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.level) === level);
+    });
+
+    // Reset sub-selections
+    selectedPolygonIndices.clear();
+    selectedVertexIndices.clear();
+    updatePolygonHighlight();
+    updateVertexPointsHelper();
+
+    const actBar = document.getElementById('action-floating-bar');
+
+    if (level === 4) {
+        // Object Mode
+        if (selectedNode) transformControls.attach(selectedNode);
+        polygonHighlightMesh.visible = false;
+        vertexPointsHelper.visible = false;
+        if (actBar) actBar.classList.add('hidden');
+        showToast("Daraja 4: Obyekt Rejimi (Butun detalni tanlash va surish)");
+    } else if (level === 3) {
+        // Polygon Mode
+        transformControls.detach();
+        polygonHighlightMesh.visible = true;
+        vertexPointsHelper.visible = false;
+        updatePolygonHighlight();
+        if (actBar) {
+            actBar.classList.remove('hidden');
+            document.getElementById('btn-act-detach').style.display = 'inline-flex';
+            document.getElementById('btn-act-flip').style.display = 'inline-flex';
+            document.getElementById('btn-act-assign-mat').style.display = 'inline-flex';
+            document.getElementById('btn-act-weld').style.display = 'none';
+        }
+        showToast("Daraja 3: Poligon Rejimi (Yuzalarni tanlash - Qizil rang)");
+    } else if (level === 1) {
+        // Vertex Mode
+        transformControls.detach();
+        polygonHighlightMesh.visible = false;
+        vertexPointsHelper.visible = true;
+        updateVertexPointsHelper();
+        if (actBar) {
+            actBar.classList.remove('hidden');
+            document.getElementById('btn-act-detach').style.display = 'none';
+            document.getElementById('btn-act-flip').style.display = 'none';
+            document.getElementById('btn-act-assign-mat').style.display = 'none';
+            document.getElementById('btn-act-weld').style.display = 'inline-flex';
+        }
+        showToast("Daraja 1: Nuqta Rejimi (Vertex nuqtalarini tahrirlash)");
+    } else if (level === 2) {
+        // Edge Mode
+        transformControls.detach();
+        polygonHighlightMesh.visible = false;
+        vertexPointsHelper.visible = false;
+        if (actBar) actBar.classList.add('hidden');
+        showToast("Daraja 2: Qirra Rejimi");
+    }
+}
+
+// Update bright red overlay for selected polygons (1:1 PC ZModeler 2)
+function updatePolygonHighlight() {
+    if (!selectedMesh || currentEditLevel !== 3 || selectedPolygonIndices.size === 0) {
+        polygonHighlightMesh.visible = false;
+        updateActionBarLabel(0);
+        return;
+    }
+
+    const geom = selectedMesh.geometry;
+    const posAttr = geom.attributes.position;
+    const indexAttr = geom.index;
+
+    const triPositions = [];
+
+    selectedPolygonIndices.forEach(faceIdx => {
+        const i0 = indexAttr ? indexAttr.getX(faceIdx * 3) : faceIdx * 3;
+        const i1 = indexAttr ? indexAttr.getX(faceIdx * 3 + 1) : faceIdx * 3 + 1;
+        const i2 = indexAttr ? indexAttr.getX(faceIdx * 3 + 2) : faceIdx * 3 + 2;
+
+        triPositions.push(posAttr.getX(i0), posAttr.getY(i0), posAttr.getZ(i0));
+        triPositions.push(posAttr.getX(i1), posAttr.getY(i1), posAttr.getZ(i1));
+        triPositions.push(posAttr.getX(i2), posAttr.getY(i2), posAttr.getZ(i2));
+    });
+
+    polygonHighlightMesh.geometry.dispose();
+    const newGeo = new THREE.BufferGeometry();
+    newGeo.setAttribute('position', new THREE.Float32BufferAttribute(triPositions, 3));
+    newGeo.computeVertexNormals();
+    polygonHighlightMesh.geometry = newGeo;
+
+    // Align with selected mesh world transform
+    polygonHighlightMesh.matrixAutoUpdate = false;
+    polygonHighlightMesh.matrix.copy(selectedMesh.matrixWorld);
+    polygonHighlightMesh.visible = true;
+
+    updateActionBarLabel(selectedPolygonIndices.size);
+    if (document.getElementById('lbl-uv-poly-count')) {
+        document.getElementById('lbl-uv-poly-count').textContent = selectedPolygonIndices.size;
+    }
+}
+
+// Update Point Cloud Helper for Vertices
+function updateVertexPointsHelper() {
+    if (!selectedMesh || currentEditLevel !== 1) {
+        vertexPointsHelper.visible = false;
+        updateActionBarLabel(0);
+        return;
+    }
+
+    const geom = selectedMesh.geometry;
+    const posAttr = geom.attributes.position;
+    const numVerts = posAttr.count;
+
+    const positions = new Float32Array(numVerts * 3);
+    const colors = new Float32Array(numVerts * 3);
+
+    for (let i = 0; i < numVerts; i++) {
+        positions[i * 3] = posAttr.getX(i);
+        positions[i * 3 + 1] = posAttr.getY(i);
+        positions[i * 3 + 2] = posAttr.getZ(i);
+
+        if (selectedVertexIndices.has(i)) {
+            // Bright red for selected vertices
+            colors[i * 3] = 1.0;
+            colors[i * 3 + 1] = 0.1;
+            colors[i * 3 + 2] = 0.1;
+        } else {
+            // Sky cyan for unselected vertices
+            colors[i * 3] = 0.2;
+            colors[i * 3 + 1] = 0.7;
+            colors[i * 3 + 2] = 1.0;
+        }
+    }
+
+    vertexPointsHelper.geometry.dispose();
+    const newGeo = new THREE.BufferGeometry();
+    newGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    newGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    vertexPointsHelper.geometry = newGeo;
+
+    vertexPointsHelper.matrixAutoUpdate = false;
+    vertexPointsHelper.matrix.copy(selectedMesh.matrixWorld);
+    vertexPointsHelper.visible = true;
+
+    // Attach gizmo to centroid of selected vertices if any selected
+    if (selectedVertexIndices.size > 0) {
+        attachGizmoToVertexCentroid();
+    } else {
+        transformControls.detach();
+    }
+
+    updateActionBarLabel(selectedVertexIndices.size);
+}
+
+function attachGizmoToVertexCentroid() {
+    if (!selectedMesh || selectedVertexIndices.size === 0) return;
+    const posAttr = selectedMesh.geometry.attributes.position;
+
+    let cx = 0, cy = 0, cz = 0;
+    selectedVertexIndices.forEach(idx => {
+        cx += posAttr.getX(idx);
+        cy += posAttr.getY(idx);
+        cz += posAttr.getZ(idx);
+    });
+    const count = selectedVertexIndices.size;
+    const localCentroid = new THREE.Vector3(cx / count, cy / count, cz / count);
+    const worldCentroid = localCentroid.clone().applyMatrix4(selectedMesh.matrixWorld);
+
+    vertexGizmoTarget.position.copy(worldCentroid);
+    vertexGizmoTarget.userData.lastWorldPos = worldCentroid.clone();
+    transformControls.attach(vertexGizmoTarget);
+}
+
+function applyVertexGizmoDrag() {
+    if (!selectedMesh || selectedVertexIndices.size === 0 || !vertexGizmoTarget.userData.lastWorldPos) return;
+
+    const currentPos = vertexGizmoTarget.position;
+    const deltaWorld = currentPos.clone().sub(vertexGizmoTarget.userData.lastWorldPos);
+
+    // Convert delta from World to Local mesh coordinates
+    const invMat = new THREE.Matrix4().copy(selectedMesh.matrixWorld).invert();
+    const deltaLocal = deltaWorld.clone().transformDirection(invMat);
+
+    const posAttr = selectedMesh.geometry.attributes.position;
+    selectedVertexIndices.forEach(idx => {
+        posAttr.setXYZ(
+            idx,
+            posAttr.getX(idx) + deltaLocal.x,
+            posAttr.getY(idx) + deltaLocal.y,
+            posAttr.getZ(idx) + deltaLocal.z
+        );
+    });
+
+    posAttr.needsUpdate = true;
+    selectedMesh.geometry.computeVertexNormals();
+
+    vertexGizmoTarget.userData.lastWorldPos = currentPos.clone();
+    updateVertexPointsHelper();
+}
+
+function updateActionBarLabel(count) {
+    const lbl = document.getElementById('act-bar-label');
+    if (lbl) {
+        lbl.textContent = `${count} ta tanlangan`;
+    }
+}
+
+// -------------------------------------------------------------
+// RAYCASTER & SELECTION HANDLING
+// -------------------------------------------------------------
 function setupRaycaster() {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     let touchStartTime = 0;
 
-    renderer.domElement.addEventListener('touchstart', (e) => {
+    renderer.domElement.addEventListener('touchstart', () => {
         touchStartTime = Date.now();
     });
 
     renderer.domElement.addEventListener('touchend', (e) => {
-        if (Date.now() - touchStartTime > 250) return;
+        if (Date.now() - touchStartTime > 300) return;
         if (e.changedTouches.length !== 1) return;
         const touch = e.changedTouches[0];
         handlePointerSelect(touch.clientX, touch.clientY);
@@ -128,30 +549,100 @@ function setupRaycaster() {
     function handlePointerSelect(clientX, clientY) {
         if (transformControls.dragging) return;
 
-        mouse.x = (clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(clientY / window.innerHeight) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera);
+        let activeCam = camera3D;
 
+        if (isQuadMode) {
+            const halfW = window.innerWidth / 2;
+            const halfH = window.innerHeight / 2;
+
+            if (clientX < halfW && clientY < halfH) {
+                activeViewportIndex = 0; activeCam = cameraTop;
+                mouse.x = (clientX / halfW) * 2 - 1;
+                mouse.y = -((clientY) / halfH) * 2 + 1;
+            } else if (clientX >= halfW && clientY < halfH) {
+                activeViewportIndex = 1; activeCam = cameraFront;
+                mouse.x = ((clientX - halfW) / halfW) * 2 - 1;
+                mouse.y = -((clientY) / halfH) * 2 + 1;
+            } else if (clientX < halfW && clientY >= halfH) {
+                activeViewportIndex = 2; activeCam = cameraLeft;
+                mouse.x = (clientX / halfW) * 2 - 1;
+                mouse.y = -((clientY - halfH) / halfH) * 2 + 1;
+            } else {
+                activeViewportIndex = 3; activeCam = camera3D;
+                mouse.x = ((clientX - halfW) / halfW) * 2 - 1;
+                mouse.y = -((clientY - halfH) / halfH) * 2 + 1;
+            }
+            updateActiveViewportBorder();
+        } else {
+            activeCam = viewports[activeViewportIndex].camera;
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+        }
+
+        raycaster.setFromCamera(mouse, activeCam);
         if (!currentRootGroup) return;
 
-        const intersects = raycaster.intersectObjects(currentRootGroup.children, true);
-        if (intersects.length > 0) {
-            let hitObj = intersects[0].object;
-            let meshCandidate = (hitObj instanceof THREE.Mesh) ? hitObj : null;
+        if (currentEditLevel === 4) {
+            // Object Level Selection
+            const intersects = raycaster.intersectObjects(currentRootGroup.children, true);
+            if (intersects.length > 0) {
+                let hitObj = intersects[0].object;
+                let meshCandidate = (hitObj instanceof THREE.Mesh) ? hitObj : null;
 
-            while (hitObj && hitObj.parent !== currentRootGroup && hitObj.parent !== scene) {
-                if (hitObj.userData && hitObj.userData.frameIndex !== undefined) {
-                    break;
+                while (hitObj && hitObj.parent !== currentRootGroup && hitObj.parent !== scene) {
+                    if (hitObj.userData && hitObj.userData.frameIndex !== undefined) break;
+                    hitObj = hitObj.parent;
                 }
-                hitObj = hitObj.parent;
+                if (hitObj && hitObj.userData && hitObj.userData.frameIndex !== undefined) {
+                    selectNodeByIndex(hitObj.userData.frameIndex, meshCandidate);
+                }
             }
-            if (hitObj && hitObj.userData && hitObj.userData.frameIndex !== undefined) {
-                selectNodeByIndex(hitObj.userData.frameIndex, meshCandidate);
+        } else if (currentEditLevel === 3) {
+            // Polygon Level Selection
+            if (!selectedMesh) return;
+            const intersects = raycaster.intersectObject(selectedMesh, false);
+            if (intersects.length > 0) {
+                const faceIndex = intersects[0].faceIndex;
+                if (selectedPolygonIndices.has(faceIndex)) {
+                    selectedPolygonIndices.delete(faceIndex);
+                } else {
+                    selectedPolygonIndices.add(faceIndex);
+                }
+                updatePolygonHighlight();
+            }
+        } else if (currentEditLevel === 1) {
+            // Vertex Level Selection
+            if (!selectedMesh) return;
+            const posAttr = selectedMesh.geometry.attributes.position;
+            const intersects = raycaster.intersectObject(selectedMesh, false);
+            if (intersects.length > 0) {
+                const face = intersects[0].face;
+                // Add the closest vertex of the clicked face
+                const hitPointLocal = intersects[0].point.clone().applyMatrix4(new THREE.Matrix4().copy(selectedMesh.matrixWorld).invert());
+                const vA = new THREE.Vector3(posAttr.getX(face.a), posAttr.getY(face.a), posAttr.getZ(face.a));
+                const vB = new THREE.Vector3(posAttr.getX(face.b), posAttr.getY(face.b), posAttr.getZ(face.b));
+                const vC = new THREE.Vector3(posAttr.getX(face.c), posAttr.getY(face.c), posAttr.getZ(face.c));
+
+                const dA = hitPointLocal.distanceTo(vA);
+                const dB = hitPointLocal.distanceTo(vB);
+                const dC = hitPointLocal.distanceTo(vC);
+
+                let closest = face.a;
+                let minDist = dA;
+                if (dB < minDist) { closest = face.b; minDist = dB; }
+                if (dC < minDist) { closest = face.c; }
+
+                if (selectedVertexIndices.has(closest)) {
+                    selectedVertexIndices.delete(closest);
+                } else {
+                    selectedVertexIndices.add(closest);
+                }
+                updateVertexPointsHelper();
             }
         }
     }
 
-    // Hide initial splash loader
+    // Hide launch screen splash
     const loader = document.getElementById('app-loading-state');
     if (loader) {
         loader.style.opacity = '0';
@@ -159,150 +650,221 @@ function setupRaycaster() {
     }
 }
 
-// Procedural Studio / Sky Environment Map for GTA Glossy Reflections
-function createStudioEnvMap() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
+// -------------------------------------------------------------
+// POLYGON & VERTEX OPERATIONS (DETACH, DELETE, FLIP, WELD, ASSIGN)
+// -------------------------------------------------------------
 
-    // 1. Sky & Atmosphere gradient (Top half)
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, 256);
-    skyGrad.addColorStop(0, '#1e3a8a');
-    skyGrad.addColorStop(0.35, '#38bdf8');
-    skyGrad.addColorStop(0.85, '#bae6fd');
-    skyGrad.addColorStop(1, '#ffffff');
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, 1024, 256);
-
-    // 2. High-intensity Sun / Key light reflection
-    const sunGrad = ctx.createRadialGradient(512, 90, 5, 512, 90, 240);
-    sunGrad.addColorStop(0, '#ffffff');
-    sunGrad.addColorStop(0.25, 'rgba(255, 250, 230, 0.95)');
-    sunGrad.addColorStop(0.6, 'rgba(255, 220, 150, 0.4)');
-    sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = sunGrad;
-    ctx.fillRect(0, 0, 1024, 256);
-
-    // 3. Ground & Asphalt gradient (Bottom half)
-    const groundGrad = ctx.createLinearGradient(0, 256, 0, 512);
-    groundGrad.addColorStop(0, '#0f172a');
-    groundGrad.addColorStop(0.2, '#1e293b');
-    groundGrad.addColorStop(0.6, '#090d16');
-    groundGrad.addColorStop(1, '#020617');
-    ctx.fillStyle = groundGrad;
-    ctx.fillRect(0, 256, 1024, 256);
-
-    // 4. Softbox highlights for automotive showroom curvature lines
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.fillRect(120, 50, 160, 90);
-    ctx.fillRect(740, 50, 160, 90);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.mapping = THREE.EquirectangularReflectionMapping;
-    return texture;
-}
-
-function toggleShaderMode() {
-    isShaderMode = !isShaderMode;
-    const btn = document.getElementById('btn-toggle-shader');
-    if (btn) {
-        btn.classList.toggle('active', isShaderMode);
+// Detach selected polygons into a brand new part in the hierarchy
+function detachSelectedPolygons() {
+    if (!selectedMesh || selectedPolygonIndices.size === 0 || !currentDFF) {
+        showToast("Ajratish uchun avval poligonlarni tanlang!");
+        return;
     }
 
-    if (!studioEnvMap) {
-        studioEnvMap = createStudioEnvMap();
-    }
+    const partName = prompt("Yangi detal nomini kiriting:", `${selectedNode.name}_detached`);
+    if (!partName) return;
 
-    if (isShaderMode) {
-        scene.environment = studioEnvMap;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.25;
-        showToast("✨ Shader: Yaltiroq rejim yoqildi (O'yindagi ENB/Glossy)");
-    } else {
-        scene.environment = null;
-        renderer.toneMapping = THREE.NoToneMapping;
-        renderer.toneMappingExposure = 1.0;
-        showToast("Shader rejimi: Oddiy (Standart)");
-    }
+    const oldGeom = selectedMesh.geometry;
+    const oldIndex = oldGeom.index;
+    const oldPos = oldGeom.attributes.position;
+    const oldNorm = oldGeom.attributes.normal;
+    const oldUv = oldGeom.attributes.uv;
 
-    updateAllMaterialsShader();
-}
+    const keepIndices = [];
+    const detachedIndices = [];
+    const detachedVertexMap = new Map();
+    const newPositions = [];
+    const newNormals = [];
+    const newUvs = [];
 
-function updateAllMaterialsShader() {
-    if (!currentRootGroup) return;
+    const numFaces = oldIndex.count / 3;
 
-    currentRootGroup.traverse(obj => {
-        if (obj instanceof THREE.Mesh && !obj.name.includes("__dummy_")) {
-            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-            mats.forEach(mat => {
-                if (mat instanceof THREE.MeshStandardMaterial) {
-                    const texName = (mat.userData?.dffMat?.textureName || "").toLowerCase();
-                    const partName = (obj.name || "").toLowerCase();
-                    const combined = texName + " " + partName;
+    for (let f = 0; f < numFaces; f++) {
+        const i0 = oldIndex.getX(f * 3);
+        const i1 = oldIndex.getX(f * 3 + 1);
+        const i2 = oldIndex.getX(f * 3 + 2);
 
-                    if (isShaderMode) {
-                        if (combined.includes("glass") || combined.includes("window") || combined.includes("windscreen")) {
-                            mat.transparent = true;
-                            mat.opacity = 0.55;
-                            mat.roughness = 0.05;
-                            mat.metalness = 0.9;
-                            mat.envMapIntensity = 2.5;
-                        } else if (combined.includes("wheel") || combined.includes("rim") || combined.includes("chrom") || combined.includes("exhaust")) {
-                            mat.roughness = 0.08;
-                            mat.metalness = 0.95;
-                            mat.envMapIntensity = 2.4;
-                        } else if (combined.includes("light") || combined.includes("lamp")) {
-                            mat.roughness = 0.15;
-                            mat.metalness = 0.3;
-                            mat.envMapIntensity = 1.6;
-                        } else {
-                            // Glossy car paint body (Kuzov)
-                            mat.roughness = 0.12;
-                            mat.metalness = 0.65;
-                            mat.envMapIntensity = 1.9;
-                        }
-                    } else {
-                        // Standard edit mode
-                        if (combined.includes("glass") || combined.includes("window")) {
-                            mat.transparent = true;
-                            mat.opacity = 0.65;
-                        }
-                        mat.roughness = 0.4;
-                        mat.metalness = 0.2;
-                        mat.envMapIntensity = 0.5;
-                    }
-                    mat.needsUpdate = true;
+        if (selectedPolygonIndices.has(f)) {
+            [i0, i1, i2].forEach(oldIdx => {
+                if (!detachedVertexMap.has(oldIdx)) {
+                    const newIdx = detachedVertexMap.size;
+                    detachedVertexMap.set(oldIdx, newIdx);
+                    newPositions.push(oldPos.getX(oldIdx), oldPos.getY(oldIdx), oldPos.getZ(oldIdx));
+                    if (oldNorm) newNormals.push(oldNorm.getX(oldIdx), oldNorm.getY(oldIdx), oldNorm.getZ(oldIdx));
+                    if (oldUv) newUvs.push(oldUv.getX(oldIdx), oldUv.getY(oldIdx));
                 }
+                detachedIndices.push(detachedVertexMap.get(oldIdx));
             });
+        } else {
+            keepIndices.push(i0, i1, i2);
         }
-    });
-}
-
-function toggleUVFlip() {
-    isUVFlipped = !isUVFlipped;
-    const btn = document.getElementById('btn-toggle-uv');
-    if (btn) {
-        btn.classList.toggle('active', isUVFlipped);
     }
 
-    if (!currentRootGroup) return;
+    // 1. Update existing geometry (remove detached faces)
+    oldGeom.setIndex(keepIndices);
+    oldGeom.groups = [{ start: 0, count: keepIndices.length, materialIndex: 0 }];
 
-    currentRootGroup.traverse(obj => {
-        if (obj instanceof THREE.Mesh && obj.geometry && obj.geometry.attributes.uv) {
-            const uvAttr = obj.geometry.attributes.uv;
-            const array = uvAttr.array;
-            for (let i = 1; i < array.length; i += 2) {
-                array[i] = 1.0 - array[i];
-            }
-            uvAttr.needsUpdate = true;
-        }
-    });
+    // 2. Create new frame and geometry in DFFModel
+    const newFrameIndex = currentDFF.frames.length;
+    const parentIndex = selectedNode.userData.frameIndex;
 
-    showToast(isUVFlipped ? "🔄 UV: Teskari qilindi (180°)" : "🔄 UV: Asl holatga keltirildi (Normal)");
+    const newFrame = {
+        index: newFrameIndex,
+        name: partName.trim(),
+        rot: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        pos: [0, 0, 0],
+        parentIndex: parentIndex,
+        matrixFlags: 0x00020003,
+        extensions: []
+    };
+    currentDFF.frames.push(newFrame);
+
+    // Build new BufferGeometry for detached part
+    const newBufferGeom = new THREE.BufferGeometry();
+    newBufferGeom.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+    if (newNormals.length > 0) newBufferGeom.setAttribute('normal', new THREE.Float32BufferAttribute(newNormals, 3));
+    if (newUvs.length > 0) newBufferGeom.setAttribute('uv', new THREE.Float32BufferAttribute(newUvs, 2));
+    newBufferGeom.setIndex(detachedIndices);
+    newBufferGeom.computeVertexNormals();
+
+    const newMesh = new THREE.Mesh(newBufferGeom, selectedMesh.material);
+    newMesh.userData = { frameIndex: newFrameIndex };
+
+    const newGroup = new THREE.Group();
+    newGroup.name = newFrame.name;
+    newGroup.userData = { frameIndex: newFrameIndex, frameData: newFrame };
+    newGroup.add(newMesh);
+
+    frameGroups.push(newGroup);
+    selectedNode.add(newGroup);
+
+    selectedPolygonIndices.clear();
+    updatePolygonHighlight();
+    renderHierarchyList();
+    selectNodeByIndex(newFrameIndex, newMesh);
+    showToast(`⚡ Ajratildi: "${partName}" yangi detal sifatida qo'shildi!`);
 }
 
-// Build Three.js 3D Scene from DFFModel
+// Delete selected polygons or vertices
+function deleteSelectedElements() {
+    if (currentEditLevel === 3) {
+        if (!selectedMesh || selectedPolygonIndices.size === 0) return;
+        const geom = selectedMesh.geometry;
+        const oldIndex = geom.index;
+        const keepIndices = [];
+        const numFaces = oldIndex.count / 3;
+
+        for (let f = 0; f < numFaces; f++) {
+            if (!selectedPolygonIndices.has(f)) {
+                keepIndices.push(oldIndex.getX(f * 3), oldIndex.getX(f * 3 + 1), oldIndex.getX(f * 3 + 2));
+            }
+        }
+
+        geom.setIndex(keepIndices);
+        geom.groups = [{ start: 0, count: keepIndices.length, materialIndex: 0 }];
+        selectedPolygonIndices.clear();
+        updatePolygonHighlight();
+        showToast("Tanlangan poligonlar o'chirildi!");
+    } else if (currentEditLevel === 1) {
+        if (!selectedMesh || selectedVertexIndices.size === 0) return;
+        const geom = selectedMesh.geometry;
+        const oldIndex = geom.index;
+        const keepIndices = [];
+        const numFaces = oldIndex.count / 3;
+
+        for (let f = 0; f < numFaces; f++) {
+            const i0 = oldIndex.getX(f * 3);
+            const i1 = oldIndex.getX(f * 3 + 1);
+            const i2 = oldIndex.getX(f * 3 + 2);
+
+            if (!selectedVertexIndices.has(i0) && !selectedVertexIndices.has(i1) && !selectedVertexIndices.has(i2)) {
+                keepIndices.push(i0, i1, i2);
+            }
+        }
+
+        geom.setIndex(keepIndices);
+        geom.groups = [{ start: 0, count: keepIndices.length, materialIndex: 0 }];
+        selectedVertexIndices.clear();
+        updateVertexPointsHelper();
+        showToast("Tanlangan nuqtalar va ularga ulangan poligonlar o'chirildi!");
+    }
+}
+
+// Flip normals and polygon winding order
+function flipSelectedPolygons() {
+    if (!selectedMesh || selectedPolygonIndices.size === 0) {
+        showToast("O'girish uchun poligonlarni tanlang!");
+        return;
+    }
+    const geom = selectedMesh.geometry;
+    const indexAttr = geom.index;
+
+    selectedPolygonIndices.forEach(faceIdx => {
+        const i1 = indexAttr.getX(faceIdx * 3 + 1);
+        const i2 = indexAttr.getX(faceIdx * 3 + 2);
+        // Swap winding order
+        indexAttr.setX(faceIdx * 3 + 1, i2);
+        indexAttr.setX(faceIdx * 3 + 2, i1);
+    });
+
+    indexAttr.needsUpdate = true;
+    geom.computeVertexNormals();
+    updatePolygonHighlight();
+    showToast("🔄 Poligonlar o'girildi (Normallar teskarilandi)");
+}
+
+// Weld / Fuse Vertices within threshold distance
+function weldVertices(threshold = 0.005) {
+    if (!selectedMesh) return;
+    const geom = selectedMesh.geometry;
+    const posAttr = geom.attributes.position;
+    const indexAttr = geom.index;
+    const numVerts = posAttr.count;
+
+    const targetVerts = selectedVertexIndices.size > 0 ? Array.from(selectedVertexIndices) : Array.from({ length: numVerts }, (_, i) => i);
+    const weldMap = new Map();
+
+    let weldedCount = 0;
+    for (let i = 0; i < targetVerts.length; i++) {
+        const idxA = targetVerts[i];
+        if (weldMap.has(idxA)) continue;
+
+        const vA = new THREE.Vector3(posAttr.getX(idxA), posAttr.getY(idxA), posAttr.getZ(idxA));
+
+        for (let j = i + 1; j < targetVerts.length; j++) {
+            const idxB = targetVerts[j];
+            if (weldMap.has(idxB)) continue;
+
+            const vB = new THREE.Vector3(posAttr.getX(idxB), posAttr.getY(idxB), posAttr.getZ(idxB));
+            if (vA.distanceTo(vB) <= threshold) {
+                weldMap.set(idxB, idxA);
+                weldedCount++;
+            }
+        }
+    }
+
+    if (weldedCount === 0) {
+        showToast(`Weld: Ushbu oraliqda (${(threshold * 1000).toFixed(1)}mm) birlashtiriladigan nuqtalar topilmadi`);
+        return;
+    }
+
+    // Remap indices
+    for (let k = 0; k < indexAttr.count; k++) {
+        const idx = indexAttr.getX(k);
+        if (weldMap.has(idx)) {
+            indexAttr.setX(k, weldMap.get(idx));
+        }
+    }
+
+    indexAttr.needsUpdate = true;
+    geom.computeVertexNormals();
+    updateVertexPointsHelper();
+    showToast(`🔗 Weld yakunlandi: ${weldedCount} ta nuqta birlashtirildi!`);
+}
+
+// -------------------------------------------------------------
+// RENDERWARE DFF PARSING & 32-BIT BUFFERGEOMETRY (34MB+ FIX)
+// -------------------------------------------------------------
 function buildThreeSceneFromDFF(dff) {
     if (currentRootGroup) {
         scene.remove(currentRootGroup);
@@ -310,6 +872,8 @@ function buildThreeSceneFromDFF(dff) {
     transformControls.detach();
     selectedNode = null;
     selectedMesh = null;
+    selectedPolygonIndices.clear();
+    selectedVertexIndices.clear();
 
     currentDFF = dff;
     currentRootGroup = new THREE.Group();
@@ -324,10 +888,8 @@ function buildThreeSceneFromDFF(dff) {
         group.name = frame.name;
         group.userData = { frameIndex: i, frameData: frame };
 
-        // Position
         group.position.set(frame.pos[0], frame.pos[1], frame.pos[2]);
 
-        // Rotation matrix (3x3)
         const m = new THREE.Matrix4();
         m.set(
             frame.rot[0], frame.rot[3], frame.rot[6], 0,
@@ -339,7 +901,6 @@ function buildThreeSceneFromDFF(dff) {
 
         frameGroups.push(group);
 
-        // Store initial wheel heights for Posadka slider
         if (frame.name.includes("wheel_") && frame.name.includes("_dummy")) {
             initialWheelPositions[frame.name] = frame.pos[2];
         }
@@ -357,7 +918,7 @@ function buildThreeSceneFromDFF(dff) {
         }
     }
 
-    // 3. Attach Geometries via Atomics
+    // 3. Attach Geometries via Atomics using Tristrip Unpacker & 32-bit Indices
     for (let i = 0; i < dff.atomics.length; i++) {
         const at = dff.atomics[i];
         if (at.frameIndex >= frameGroups.length || at.geometryIndex >= dff.geometries.length) continue;
@@ -413,28 +974,32 @@ function buildThreeSceneFromDFF(dff) {
             bufferGeom.setAttribute('color', new THREE.BufferAttribute(colArray, 3));
         }
 
-        // Indices & Groups (using BinMesh or Triangles)
-        let threeMaterials = [];
+        // CRITICAL FIX FOR 34MB+ HIGH-POLY MODELS & TRISTRIPS:
+        // Use DFFModel.getGeometryTriangles to properly decompress Tristrips
+        // and safely handle 32-bit (>65535) indices!
+        const unpackedMeshes = DFFModel.getGeometryTriangles(geom);
+        let allIndices = [];
 
-        if (geom.binMesh && geom.binMesh.meshes && geom.binMesh.meshes.length > 0) {
-            let allIndices = [];
-            for (const mesh of geom.binMesh.meshes) {
+        if (unpackedMeshes && unpackedMeshes.length > 0) {
+            for (const sub of unpackedMeshes) {
                 const start = allIndices.length;
-                for (const idx of mesh.indices) {
-                    allIndices.push(idx);
+                for (let k = 0; k < sub.indices.length; k++) {
+                    allIndices.push(sub.indices[k]);
                 }
-                bufferGeom.addGroup(start, mesh.indices.length, mesh.matIndex);
+                bufferGeom.addGroup(start, sub.indices.length, sub.matIndex);
             }
-            bufferGeom.setIndex(allIndices);
-        } else if (geom.triangles && geom.triangles.length > 0) {
-            let allIndices = [];
-            for (const t of geom.triangles) {
-                allIndices.push(t.v1, t.v2, t.v3);
-            }
-            bufferGeom.setIndex(allIndices);
         }
 
-        // Materials setup
+        // 32-bit Index Buffer if vertex count > 65535
+        const needsUint32 = (geom.numVertices > 65535) || allIndices.some(idx => idx > 65535);
+        if (needsUint32) {
+            bufferGeom.setIndex(new THREE.Uint32BufferAttribute(new Uint32Array(allIndices), 1));
+        } else {
+            bufferGeom.setIndex(new THREE.Uint16BufferAttribute(new Uint16Array(allIndices), 1));
+        }
+
+        // Materials setup with DoubleSide to ensure no missing faces
+        let threeMaterials = [];
         if (geom.materials && geom.materials.length > 0) {
             for (let m = 0; m < geom.materials.length; m++) {
                 const mat = geom.materials[m];
@@ -464,20 +1029,20 @@ function buildThreeSceneFromDFF(dff) {
         targetGroup.add(mesh);
     }
 
-    // 4. Attach Visual Helpers for Dummies (frames without geometries)
+    // 4. Attach Visual Helpers for Dummies
     for (let i = 0; i < frameGroups.length; i++) {
         const grp = frameGroups[i];
         const hasMeshes = grp.children.some(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
 
         if (!hasMeshes) {
-            let dummyColor = 0xa855f7; // default magenta
-            if (grp.name.includes("wheel")) dummyColor = 0x38bdf8; // cyan
-            else if (grp.name.includes("light")) dummyColor = 0xfacc15; // yellow
-            else if (grp.name.includes("exhaust")) dummyColor = 0xef4444; // red
-            else if (grp.name.includes("ped") || grp.name.includes("seat")) dummyColor = 0x22c55e; // green
+            let dummyColor = 0xa855f7;
+            if (grp.name.includes("wheel")) dummyColor = 0x38bdf8;
+            else if (grp.name.includes("light")) dummyColor = 0xfacc15;
+            else if (grp.name.includes("exhaust")) dummyColor = 0xef4444;
+            else if (grp.name.includes("ped") || grp.name.includes("seat")) dummyColor = 0x22c55e;
 
             const dummyGeo = new THREE.SphereGeometry(0.06, 12, 12);
-            const dummyMat = new THREE.MeshBasicMaterial({ color: dummyColor, wireframe: false });
+            const dummyMat = new THREE.MeshBasicMaterial({ color: dummyColor });
             const dummyMesh = new THREE.Mesh(dummyGeo, dummyMat);
             dummyMesh.name = "__dummy_helper__";
 
@@ -491,76 +1056,1319 @@ function buildThreeSceneFromDFF(dff) {
 
     scene.add(currentRootGroup);
 
-    // Compute bounding box and frame camera
+    // Frame camera to vehicle
     const box = new THREE.Box3().setFromObject(currentRootGroup);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
 
     orbitControls.target.copy(center);
-    camera.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.8);
-    camera.lookAt(center);
+    camera3D.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.8);
+    camera3D.lookAt(center);
     orbitControls.update();
 
-    // Populate Hierarchy UI
     renderHierarchyList();
 
-    // Hide welcome overlay
     document.getElementById('welcome-overlay').classList.add('hidden');
-    if (isShaderMode) {
-        updateAllMaterialsShader();
-    }
+    if (isShaderMode) updateAllMaterialsShader();
 
-    showToast(`DFF yuklandi: ${dff.frames.length} ta qism, ${dff.geometries.length} ta geometriya`);
+    showToast(`DFF ochildi: ${dff.frames.length} qism, ${dff.geometries.length} geometriya (Toza ochildi!)`);
 }
 
-// Merge an external DFF into current model
-function mergeExternalDFF(arrayBuffer, fileName) {
+// -------------------------------------------------------------
+// FULL ZMODELER 2 MATERIAL EDITOR (HOTKEY 'E')
+// -------------------------------------------------------------
+function openMaterialEditorModal() {
     if (!currentDFF) {
-        showToast("Avval asosiy modelni oching!");
+        showToast("Avval modelni oching!");
+        return;
+    }
+    const modal = document.getElementById('modal-mat-editor');
+    if (modal) modal.classList.remove('hidden');
+    populateModalMaterialList();
+}
+
+function closeMaterialEditorModal() {
+    const modal = document.getElementById('modal-mat-editor');
+    if (modal) modal.classList.add('hidden');
+}
+
+function setupMaterialEditorModal() {
+    document.getElementById('btn-close-mat-editor').addEventListener('click', closeMaterialEditorModal);
+    document.getElementById('btn-open-mat-editor').addEventListener('click', openMaterialEditorModal);
+
+    // Color picker
+    const picker = document.getElementById('modal-mat-color-picker');
+    const hexInput = document.getElementById('modal-mat-color-hex');
+    const alphaSlider = document.getElementById('slider-modal-mat-alpha');
+    const alphaVal = document.getElementById('val-modal-mat-alpha');
+
+    picker.addEventListener('input', (e) => {
+        hexInput.value = e.target.value.toUpperCase();
+        applyModalMatChanges();
+    });
+    hexInput.addEventListener('change', (e) => {
+        picker.value = e.target.value;
+        applyModalMatChanges();
+    });
+    alphaSlider.addEventListener('input', (e) => {
+        alphaVal.textContent = e.target.value + "%";
+        applyModalMatChanges();
+    });
+
+    // Ambient / Specular
+    document.getElementById('slider-modal-ambient').addEventListener('input', (e) => {
+        document.getElementById('val-modal-ambient').textContent = parseFloat(e.target.value).toFixed(2);
+        applyModalMatChanges();
+    });
+    document.getElementById('slider-modal-specular').addEventListener('input', (e) => {
+        document.getElementById('val-modal-specular').textContent = parseFloat(e.target.value).toFixed(2);
+        applyModalMatChanges();
+    });
+
+    // Shader Preset Change
+    document.getElementById('modal-mat-shader').addEventListener('change', (e) => {
+        applyShaderPreset(e.target.value);
+    });
+
+    // Texture image button
+    const texInput = document.getElementById('mat-editor-tex-input');
+    document.getElementById('btn-modal-load-tex').addEventListener('click', () => texInput.click());
+    texInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const texLoader = new THREE.TextureLoader();
+            texLoader.load(ev.target.result, (texture) => {
+                texture.flipY = false;
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+
+                const baseName = file.name.replace(/\.[^/.]+$/, "");
+                document.getElementById('modal-mat-texname').value = baseName;
+                loadedTexturesPool[baseName.toLowerCase()] = texture;
+
+                document.getElementById('modal-tex-preview-box').style.display = 'flex';
+                document.getElementById('modal-tex-preview-img').src = ev.target.result;
+                document.getElementById('modal-tex-preview-name').textContent = file.name;
+
+                applyModalMatChanges(texture);
+                showToast(`Tekstura materialga ulandi: ${file.name}`);
+            });
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Assignment buttons
+    document.getElementById('btn-mat-assign-selected-poly').addEventListener('click', () => {
+        if (!selectedMesh || selectedPolygonIndices.size === 0) {
+            showToast("Avval Poligon rejimida (3) kerakli yuzalarni tanlang!");
+            return;
+        }
+        assignMaterialToPolygons(selectedMaterialIndex);
+    });
+
+    document.getElementById('btn-mat-assign-object').addEventListener('click', () => {
+        if (!selectedMesh) {
+            showToast("Avval detalni tanlang!");
+            return;
+        }
+        const numFaces = selectedMesh.geometry.index.count / 3;
+        selectedPolygonIndices = new Set(Array.from({ length: numFaces }, (_, i) => i));
+        assignMaterialToPolygons(selectedMaterialIndex);
+        showToast("Material butun detalga biriktirildi!");
+    });
+}
+
+function populateModalMaterialList() {
+    const list = document.getElementById('mat-modal-list');
+    list.innerHTML = '';
+    if (!currentDFF || currentDFF.geometries.length === 0) return;
+
+    // Collect all materials from current model
+    const allMats = [];
+    currentDFF.geometries.forEach((g, gIdx) => {
+        if (g.materials) {
+            g.materials.forEach((m, mIdx) => {
+                allMats.push({ mat: m, geomIndex: gIdx, matIndex: mIdx });
+            });
+        }
+    });
+
+    allMats.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'mat-item' + (idx === selectedMaterialIndex ? ' selected' : '');
+
+        const swatch = document.createElement('div');
+        swatch.className = 'mat-color-swatch';
+        const c = item.mat.color || { r: 200, g: 200, b: 200 };
+        swatch.style.background = `rgb(${c.r}, ${c.g}, ${c.b})`;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `[${idx}] ${item.mat.textureName || "Material " + (idx + 1)}`;
+
+        div.appendChild(swatch);
+        div.appendChild(nameSpan);
+
+        div.addEventListener('click', () => {
+            selectedMaterialIndex = idx;
+            document.querySelectorAll('.mat-item').forEach(i => i.classList.remove('selected'));
+            div.classList.add('selected');
+            loadMaterialPropertiesToModal(item.mat);
+        });
+
+        list.appendChild(div);
+    });
+
+    if (allMats.length > 0) {
+        loadMaterialPropertiesToModal(allMats[Math.min(selectedMaterialIndex, allMats.length - 1)].mat);
+    }
+}
+
+function loadMaterialPropertiesToModal(dffMat) {
+    if (!dffMat) return;
+    const c = dffMat.color || { r: 255, g: 255, b: 255, a: 255 };
+    const hex = "#" + ((1 << 24) + (c.r << 16) + (c.g << 8) + c.b).toString(16).slice(1).toUpperCase();
+
+    document.getElementById('modal-mat-color-picker').value = hex;
+    document.getElementById('modal-mat-color-hex').value = hex;
+
+    const alphaPercent = Math.round((c.a !== undefined ? c.a : 255) / 2.55);
+    document.getElementById('slider-modal-mat-alpha').value = alphaPercent;
+    document.getElementById('val-modal-mat-alpha').textContent = alphaPercent + "%";
+
+    document.getElementById('modal-mat-name').value = dffMat.textureName || "";
+    document.getElementById('modal-mat-texname').value = dffMat.textureName || "";
+
+    document.getElementById('slider-modal-ambient').value = dffMat.ambient || 1.0;
+    document.getElementById('val-modal-ambient').textContent = (dffMat.ambient || 1.0).toFixed(2);
+    document.getElementById('slider-modal-specular').value = dffMat.specular || 1.0;
+    document.getElementById('val-modal-specular').textContent = (dffMat.specular || 1.0).toFixed(2);
+}
+
+function applyModalMatChanges(customTexture = null) {
+    if (!selectedMesh) return;
+    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
+    const targetMat = mats[selectedMaterialIndex] || mats[0];
+    if (!targetMat) return;
+
+    const hex = document.getElementById('modal-mat-color-hex').value;
+    const alpha = parseFloat(document.getElementById('slider-modal-mat-alpha').value) / 100.0;
+    const col = new THREE.Color(hex);
+
+    targetMat.color.copy(col);
+    targetMat.transparent = alpha < 0.99;
+    targetMat.opacity = alpha;
+    if (customTexture) targetMat.map = customTexture;
+    targetMat.needsUpdate = true;
+
+    // Update DFF Model material
+    if (targetMat.userData && targetMat.userData.dffMat) {
+        targetMat.userData.dffMat.color = {
+            r: Math.round(col.r * 255),
+            g: Math.round(col.g * 255),
+            b: Math.round(col.b * 255),
+            a: Math.round(alpha * 255)
+        };
+        targetMat.userData.dffMat.textureName = document.getElementById('modal-mat-texname').value.trim();
+    }
+}
+
+// GTA San Andreas Shader Presets
+function applyShaderPreset(presetName) {
+    if (!selectedMesh) return;
+    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
+    const mat = mats[selectedMaterialIndex] || mats[0];
+    if (!mat) return;
+
+    if (!studioEnvMap) studioEnvMap = createStudioEnvMap();
+
+    switch (presetName) {
+        case 'paint_primary':
+            mat.roughness = 0.12;
+            mat.metalness = 0.65;
+            mat.envMap = studioEnvMap;
+            mat.envMapIntensity = 2.0;
+            break;
+        case 'paint_secondary':
+            mat.roughness = 0.15;
+            mat.metalness = 0.55;
+            mat.envMap = studioEnvMap;
+            mat.envMapIntensity = 1.8;
+            break;
+        case 'glass':
+            mat.transparent = true;
+            mat.opacity = 0.45;
+            mat.roughness = 0.05;
+            mat.metalness = 0.9;
+            mat.envMap = studioEnvMap;
+            mat.envMapIntensity = 2.8;
+            break;
+        case 'lights':
+            mat.roughness = 0.2;
+            mat.emissive = new THREE.Color(0xfff0aa);
+            mat.emissiveIntensity = 1.2;
+            break;
+        case 'chrome':
+            mat.roughness = 0.05;
+            mat.metalness = 0.95;
+            mat.envMap = studioEnvMap;
+            mat.envMapIntensity = 3.0;
+            break;
+        case 'matte':
+            mat.roughness = 0.9;
+            mat.metalness = 0.0;
+            mat.envMap = null;
+            break;
+        default:
+            mat.roughness = 0.4;
+            mat.metalness = 0.2;
+            mat.envMap = null;
+    }
+    mat.needsUpdate = true;
+    showToast(`Shader qo'llandi: ${presetName}`);
+}
+
+function assignMaterialToPolygons(matIdx) {
+    if (!selectedMesh || selectedPolygonIndices.size === 0) return;
+    const geom = selectedMesh.geometry;
+    const numFaces = geom.index.count / 3;
+
+    // Regroup geometry indices by material
+    const groups = {};
+    for (let f = 0; f < numFaces; f++) {
+        let m = 0;
+        for (const g of geom.groups) {
+            if (f * 3 >= g.start && f * 3 < g.start + g.count) {
+                m = g.materialIndex;
+                break;
+            }
+        }
+        if (selectedPolygonIndices.has(f)) {
+            m = matIdx;
+        }
+        if (!groups[m]) groups[m] = [];
+        groups[m].push(geom.index.getX(f * 3), geom.index.getX(f * 3 + 1), geom.index.getX(f * 3 + 2));
+    }
+
+    const newIndices = [];
+    const newGroups = [];
+    for (const m in groups) {
+        const start = newIndices.length;
+        groups[m].forEach(idx => newIndices.push(idx));
+        newGroups.push({ start: start, count: groups[m].length, materialIndex: parseInt(m) });
+    }
+
+    geom.setIndex(newIndices);
+    geom.groups = newGroups;
+
+    showToast(`Material ${matIdx + 1} tanlangan ${selectedPolygonIndices.size} ta poligonga biriktirildi!`);
+    updatePolygonHighlight();
+}
+
+// -------------------------------------------------------------
+// 2D UV MAPPING EDITOR (SURFACE -> MAPPING -> EDIT UV)
+// -------------------------------------------------------------
+function setupUVEditor() {
+    uvCanvas = document.getElementById('uv-canvas');
+    if (!uvCanvas) return;
+    uvCtx = uvCanvas.getContext('2d');
+
+    document.getElementById('btn-open-uv-mapper').addEventListener('click', openUVEditor);
+    document.getElementById('btn-close-uv-mapper').addEventListener('click', () => {
+        document.getElementById('modal-uv-mapper').classList.add('hidden');
+    });
+
+    document.getElementById('btn-uv-scale-up').addEventListener('click', () => transformUV(1.1, 1.1, 0, 0));
+    document.getElementById('btn-uv-scale-down').addEventListener('click', () => transformUV(0.9, 0.9, 0, 0));
+    document.getElementById('btn-uv-rot-90').addEventListener('click', rotateUV90);
+    document.getElementById('btn-uv-flip-h').addEventListener('click', flipUVHorizontal);
+    document.getElementById('btn-uv-flip-v').addEventListener('click', flipUVVertical);
+    document.getElementById('btn-uv-fit').addEventListener('click', fitUVToBounds);
+    document.getElementById('btn-uv-reset').addEventListener('click', resetUV);
+}
+
+function openUVEditor() {
+    if (!selectedMesh) {
+        showToast("UV tahrirlash uchun avval detalni tanlang!");
+        return;
+    }
+    const modal = document.getElementById('modal-uv-mapper');
+    if (modal) modal.classList.remove('hidden');
+
+    // Store original UV coordinates for Reset
+    if (selectedMesh.geometry && selectedMesh.geometry.attributes.uv) {
+        uvOriginalCoords = new Float32Array(selectedMesh.geometry.attributes.uv.array);
+    }
+    drawUVCanvas();
+}
+
+function drawUVCanvas() {
+    if (!uvCanvas || !uvCtx || !selectedMesh) return;
+    const w = uvCanvas.width;
+    const h = uvCanvas.height;
+
+    uvCtx.fillStyle = '#0a0d14';
+    uvCtx.fillRect(0, 0, w, h);
+
+    // 1. Draw 10x10 UV Grid
+    uvCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    uvCtx.lineWidth = 1;
+    for (let i = 0; i <= 10; i++) {
+        const x = (w * i) / 10;
+        const y = (h * i) / 10;
+        uvCtx.beginPath();
+        uvCtx.moveTo(x, 0); uvCtx.lineTo(x, h);
+        uvCtx.stroke();
+        uvCtx.beginPath();
+        uvCtx.moveTo(0, y); uvCtx.lineTo(w, y);
+        uvCtx.stroke();
+    }
+
+    // 2. Draw Active Material Texture if available
+    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
+    const activeMat = mats[selectedMaterialIndex] || mats[0];
+    if (activeMat && activeMat.map && activeMat.map.image) {
+        try {
+            uvCtx.globalAlpha = 0.55;
+            uvCtx.drawImage(activeMat.map.image, 0, 0, w, h);
+            uvCtx.globalAlpha = 1.0;
+        } catch (e) {}
+    }
+
+    // 3. Draw UV Wireframe
+    const geom = selectedMesh.geometry;
+    if (!geom.attributes.uv || !geom.index) return;
+
+    const uvAttr = geom.attributes.uv;
+    const indexAttr = geom.index;
+    const numFaces = indexAttr.count / 3;
+
+    uvCtx.lineWidth = 1;
+
+    for (let f = 0; f < numFaces; f++) {
+        const isSel = selectedPolygonIndices.has(f);
+        uvCtx.strokeStyle = isSel ? '#ef4444' : '#22c55e'; // Bright Red if face selected, else Green
+
+        const i0 = indexAttr.getX(f * 3);
+        const i1 = indexAttr.getX(f * 3 + 1);
+        const i2 = indexAttr.getX(f * 3 + 2);
+
+        const u0 = uvAttr.getX(i0) * w;
+        const v0 = (1.0 - uvAttr.getY(i0)) * h;
+        const u1 = uvAttr.getX(i1) * w;
+        const v1 = (1.0 - uvAttr.getY(i1)) * h;
+        const u2 = uvAttr.getX(i2) * w;
+        const v2 = (1.0 - uvAttr.getY(i2)) * h;
+
+        uvCtx.beginPath();
+        uvCtx.moveTo(u0, v0);
+        uvCtx.lineTo(u1, v1);
+        uvCtx.lineTo(u2, v2);
+        uvCtx.closePath();
+        uvCtx.stroke();
+    }
+}
+
+function transformUV(scaleU, scaleV, offsetU, offsetV) {
+    if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
+    const uvAttr = selectedMesh.geometry.attributes.uv;
+    const arr = uvAttr.array;
+
+    for (let i = 0; i < arr.length; i += 2) {
+        arr[i] = (arr[i] - 0.5) * scaleU + 0.5 + offsetU;
+        arr[i + 1] = (arr[i + 1] - 0.5) * scaleV + 0.5 + offsetV;
+    }
+
+    uvAttr.needsUpdate = true;
+    drawUVCanvas();
+}
+
+function rotateUV90() {
+    if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
+    const uvAttr = selectedMesh.geometry.attributes.uv;
+    const arr = uvAttr.array;
+
+    for (let i = 0; i < arr.length; i += 2) {
+        const u = arr[i] - 0.5;
+        const v = arr[i + 1] - 0.5;
+        arr[i] = -v + 0.5;
+        arr[i + 1] = u + 0.5;
+    }
+
+    uvAttr.needsUpdate = true;
+    drawUVCanvas();
+    showToast("🔄 UV 90° burildi");
+}
+
+function flipUVHorizontal() {
+    if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
+    const uvAttr = selectedMesh.geometry.attributes.uv;
+    const arr = uvAttr.array;
+
+    for (let i = 0; i < arr.length; i += 2) {
+        arr[i] = 1.0 - arr[i];
+    }
+    uvAttr.needsUpdate = true;
+    drawUVCanvas();
+    showToast("↔️ UV Gorizontal o'girildi (Flip H)");
+}
+
+function flipUVVertical() {
+    if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
+    const uvAttr = selectedMesh.geometry.attributes.uv;
+    const arr = uvAttr.array;
+
+    for (let i = 1; i < arr.length; i += 2) {
+        arr[i] = 1.0 - arr[i];
+    }
+    uvAttr.needsUpdate = true;
+    drawUVCanvas();
+    showToast("↕️ UV Vertikal o'girildi (Flip V - 180°)");
+}
+
+function fitUVToBounds() {
+    if (!selectedMesh || !selectedMesh.geometry.attributes.uv) return;
+    const uvAttr = selectedMesh.geometry.attributes.uv;
+    const arr = uvAttr.array;
+
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    for (let i = 0; i < arr.length; i += 2) {
+        minU = Math.min(minU, arr[i]); maxU = Math.max(maxU, arr[i]);
+        minV = Math.min(minV, arr[i + 1]); maxV = Math.max(maxV, arr[i + 1]);
+    }
+
+    const rangeU = maxU - minU || 1;
+    const rangeV = maxV - minV || 1;
+
+    for (let i = 0; i < arr.length; i += 2) {
+        arr[i] = (arr[i] - minU) / rangeU;
+        arr[i + 1] = (arr[i + 1] - minV) / rangeV;
+    }
+
+    uvAttr.needsUpdate = true;
+    drawUVCanvas();
+    showToast("🔲 UV katakka moslandi (Fit 0..1)");
+}
+
+function resetUV() {
+    if (!selectedMesh || !uvOriginalCoords || !selectedMesh.geometry.attributes.uv) return;
+    const uvAttr = selectedMesh.geometry.attributes.uv;
+    uvAttr.array.set(uvOriginalCoords);
+    uvAttr.needsUpdate = true;
+    drawUVCanvas();
+    showToast("↩️ UV boshlang'ich holatga qaytarildi");
+}
+
+// -------------------------------------------------------------
+// ENVIRONMENT MAP GENERATOR & SHADERS
+// -------------------------------------------------------------
+function createStudioEnvMap() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, 256);
+    skyGrad.addColorStop(0, '#1e3a8a');
+    skyGrad.addColorStop(0.35, '#38bdf8');
+    skyGrad.addColorStop(0.85, '#bae6fd');
+    skyGrad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, 1024, 256);
+
+    const sunGrad = ctx.createRadialGradient(512, 90, 5, 512, 90, 240);
+    sunGrad.addColorStop(0, '#ffffff');
+    sunGrad.addColorStop(0.25, 'rgba(255, 250, 230, 0.95)');
+    sunGrad.addColorStop(0.6, 'rgba(255, 220, 150, 0.4)');
+    sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(0, 0, 1024, 256);
+
+    const groundGrad = ctx.createLinearGradient(0, 256, 0, 512);
+    groundGrad.addColorStop(0, '#0f172a');
+    groundGrad.addColorStop(0.2, '#1e293b');
+    groundGrad.addColorStop(0.6, '#090d16');
+    groundGrad.addColorStop(1, '#020617');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, 256, 1024, 256);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.fillRect(120, 50, 160, 90);
+    ctx.fillRect(740, 50, 160, 90);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    return texture;
+}
+
+function toggleShaderMode() {
+    isShaderMode = !isShaderMode;
+    const btn = document.getElementById('btn-toggle-shader');
+    if (btn) btn.classList.toggle('active', isShaderMode);
+
+    if (!studioEnvMap) studioEnvMap = createStudioEnvMap();
+
+    if (isShaderMode) {
+        scene.environment = studioEnvMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.25;
+        showToast("✨ Shader: O'yindagi yaltiroq Carpaint yoqildi!");
+    } else {
+        scene.environment = null;
+        renderer.toneMapping = THREE.NoToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        showToast("Shader: Standart rejim");
+    }
+    updateAllMaterialsShader();
+}
+
+function updateAllMaterialsShader() {
+    if (!currentRootGroup) return;
+
+    currentRootGroup.traverse(obj => {
+        if (obj instanceof THREE.Mesh && !obj.name.includes("__dummy_")) {
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            mats.forEach(mat => {
+                if (mat instanceof THREE.MeshStandardMaterial) {
+                    const texName = (mat.userData?.dffMat?.textureName || "").toLowerCase();
+                    const partName = (obj.name || "").toLowerCase();
+                    const combined = texName + " " + partName;
+
+                    if (isShaderMode) {
+                        if (combined.includes("glass") || combined.includes("window")) {
+                            mat.transparent = true; mat.opacity = 0.55; mat.roughness = 0.05; mat.metalness = 0.9; mat.envMapIntensity = 2.5;
+                        } else if (combined.includes("wheel") || combined.includes("rim") || combined.includes("chrom")) {
+                            mat.roughness = 0.08; mat.metalness = 0.95; mat.envMapIntensity = 2.4;
+                        } else if (combined.includes("light")) {
+                            mat.roughness = 0.15; mat.metalness = 0.3; mat.envMapIntensity = 1.6;
+                        } else {
+                            mat.roughness = 0.12; mat.metalness = 0.65; mat.envMapIntensity = 1.9;
+                        }
+                    } else {
+                        mat.roughness = 0.4; mat.metalness = 0.2; mat.envMapIntensity = 0.5;
+                    }
+                    mat.needsUpdate = true;
+                }
+            });
+        }
+    });
+}
+
+function toggleUVFlip() {
+    isUVFlipped = !isUVFlipped;
+    const btn = document.getElementById('btn-toggle-uv');
+    if (btn) btn.classList.toggle('active', isUVFlipped);
+
+    if (!currentRootGroup) return;
+    currentRootGroup.traverse(obj => {
+        if (obj instanceof THREE.Mesh && obj.geometry && obj.geometry.attributes.uv) {
+            const uvAttr = obj.geometry.attributes.uv;
+            const array = uvAttr.array;
+            for (let i = 1; i < array.length; i += 2) {
+                array[i] = 1.0 - array[i];
+            }
+            uvAttr.needsUpdate = true;
+        }
+    });
+    showToast(isUVFlipped ? "🔄 UV: Teskari qilindi (180°)" : "🔄 UV: Asl holatga keltirildi");
+}
+
+// -------------------------------------------------------------
+// UI SETUP & GENERAL EVENT HANDLERS
+// -------------------------------------------------------------
+function setupUIEvents() {
+    // 1. File Input Handlers
+    const fileInput = document.getElementById('dff-file-input');
+    fileInput.addEventListener('change', (e) => {
+        const fileList = Array.from(e.target.files);
+        if (fileList.length === 0) return;
+
+        const dffFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.dff'));
+        const txdFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.txd'));
+        const imgFiles = fileList.filter(f => /\.(png|jpe?g)$/i.test(f.name));
+
+        if (dffFiles.length > 0) {
+            const dffFile = dffFiles[0];
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const model = new DFFModel();
+                    model.fileName = dffFile.name.replace(/\.[^/.]+$/, "");
+                    model.parse(event.target.result);
+                    buildThreeSceneFromDFF(model);
+
+                    txdFiles.forEach(tf => {
+                        const tr = new FileReader();
+                        tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
+                        tr.readAsArrayBuffer(tf);
+                    });
+                    imgFiles.forEach(im => processImageFile(im));
+                } catch (err) {
+                    alert("DFF ochishda xatolik: " + err.message);
+                }
+            };
+            reader.readAsArrayBuffer(dffFile);
+        } else if (txdFiles.length > 0) {
+            txdFiles.forEach(tf => {
+                const tr = new FileReader();
+                tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
+                tr.readAsArrayBuffer(tf);
+            });
+        }
+    });
+
+    document.getElementById('btn-open-file').addEventListener('click', () => fileInput.click());
+
+    const txdInput = document.getElementById('txd-file-input');
+    txdInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        files.forEach(f => {
+            if (f.name.toLowerCase().endsWith('.txd')) {
+                const r = new FileReader();
+                r.onload = (ev) => processTXDData(ev.target.result, f.name);
+                r.readAsArrayBuffer(f);
+            } else if (/\.(png|jpe?g)$/i.test(f.name)) {
+                processImageFile(f);
+            }
+        });
+    });
+    document.getElementById('btn-open-txd').addEventListener('click', () => txdInput.click());
+
+    // Merge DFF
+    const mergeInput = document.getElementById('dff-merge-input');
+    mergeInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => mergeExternalDFF(event.target.result, file.name);
+        reader.readAsArrayBuffer(file);
+    });
+    document.getElementById('btn-merge-file').addEventListener('click', () => mergeInput.click());
+    document.getElementById('btn-hier-add-dff').addEventListener('click', () => mergeInput.click());
+
+    // Export DFF
+    document.getElementById('btn-export-dff').addEventListener('click', exportCurrentDFF);
+
+    // Quad View Toggle
+    document.getElementById('btn-toggle-quad-mode').addEventListener('click', toggleQuadMode);
+    document.querySelectorAll('.vp-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            maximizeViewport(parseInt(btn.dataset.vp));
+        });
+    });
+
+    // Level Buttons
+    document.querySelectorAll('.level-btn').forEach(b => {
+        b.addEventListener('click', () => setEditLevel(parseInt(b.dataset.level)));
+    });
+
+    // Action Bar buttons
+    document.getElementById('btn-act-detach').addEventListener('click', detachSelectedPolygons);
+    document.getElementById('btn-act-delete').addEventListener('click', deleteSelectedElements);
+    document.getElementById('btn-act-flip').addEventListener('click', flipSelectedPolygons);
+    document.getElementById('btn-act-weld').addEventListener('click', () => {
+        document.getElementById('modal-weld-threshold').classList.remove('hidden');
+    });
+    document.getElementById('btn-act-assign-mat').addEventListener('click', () => {
+        openMaterialEditorModal();
+    });
+
+    // Weld threshold modal
+    document.getElementById('btn-close-weld-modal').addEventListener('click', () => {
+        document.getElementById('modal-weld-threshold').classList.add('hidden');
+    });
+    document.getElementById('slider-weld-threshold').addEventListener('input', (e) => {
+        const m = parseFloat(e.target.value);
+        document.getElementById('val-weld-threshold').textContent = `${m.toFixed(3)} m (${(m * 1000).toFixed(0)}mm)`;
+    });
+    document.getElementById('btn-confirm-weld').addEventListener('click', () => {
+        const threshold = parseFloat(document.getElementById('slider-weld-threshold').value);
+        weldVertices(threshold);
+        document.getElementById('modal-weld-threshold').classList.add('hidden');
+    });
+
+    // Selection mode buttons
+    document.getElementById('btn-sel-all').addEventListener('click', () => {
+        if (!selectedMesh) return;
+        if (currentEditLevel === 3) {
+            const numFaces = selectedMesh.geometry.index.count / 3;
+            selectedPolygonIndices = new Set(Array.from({ length: numFaces }, (_, i) => i));
+            updatePolygonHighlight();
+        } else if (currentEditLevel === 1) {
+            const numVerts = selectedMesh.geometry.attributes.position.count;
+            selectedVertexIndices = new Set(Array.from({ length: numVerts }, (_, i) => i));
+            updateVertexPointsHelper();
+        }
+    });
+
+    document.getElementById('btn-sel-none').addEventListener('click', () => {
+        selectedPolygonIndices.clear();
+        selectedVertexIndices.clear();
+        updatePolygonHighlight();
+        updateVertexPointsHelper();
+    });
+
+    document.getElementById('btn-sel-invert').addEventListener('click', () => {
+        if (!selectedMesh) return;
+        if (currentEditLevel === 3) {
+            const numFaces = selectedMesh.geometry.index.count / 3;
+            const inverted = new Set();
+            for (let i = 0; i < numFaces; i++) {
+                if (!selectedPolygonIndices.has(i)) inverted.add(i);
+            }
+            selectedPolygonIndices = inverted;
+            updatePolygonHighlight();
+        } else if (currentEditLevel === 1) {
+            const numVerts = selectedMesh.geometry.attributes.position.count;
+            const inverted = new Set();
+            for (let i = 0; i < numVerts; i++) {
+                if (!selectedVertexIndices.has(i)) inverted.add(i);
+            }
+            selectedVertexIndices = inverted;
+            updateVertexPointsHelper();
+        }
+    });
+
+    // ZModeler Menu Dropdowns
+    const menuConfigs = [
+        { btn: 'btn-menu-modify', menu: 'menu-modify' },
+        { btn: 'btn-menu-surface', menu: 'menu-surface' },
+        { btn: 'btn-menu-vertices', menu: 'menu-vertices' },
+        { btn: 'btn-menu-polygons', menu: 'menu-polygons' }
+    ];
+
+    menuConfigs.forEach(cfg => {
+        const btn = document.getElementById(cfg.btn);
+        const menu = document.getElementById(cfg.menu);
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuConfigs.forEach(c => {
+                if (c.menu !== cfg.menu) document.getElementById(c.menu).classList.add('hidden');
+            });
+            menu.classList.toggle('hidden');
+        });
+    });
+
+    document.addEventListener('click', () => {
+        menuConfigs.forEach(c => document.getElementById(c.menu).classList.add('hidden'));
+    });
+
+    // Handle Dropdown actions
+    document.querySelectorAll('.menu-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const action = item.dataset.action;
+            handleMenuAction(action);
+        });
+    });
+
+    // Gizmo Mode buttons
+    const gizmoBtns = document.querySelectorAll('.gizmo-btn');
+    gizmoBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            gizmoBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            transformControls.setMode(btn.dataset.mode);
+        });
+    });
+
+    // Toolbar buttons
+    document.getElementById('btn-toggle-wireframe').addEventListener('click', (e) => {
+        isWireframe = !isWireframe;
+        e.currentTarget.classList.toggle('active', isWireframe);
+        if (currentRootGroup) {
+            currentRootGroup.traverse(child => {
+                if (child instanceof THREE.Mesh && !child.name.includes("__dummy_")) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.wireframe = isWireframe);
+                    else if (child.material) child.material.wireframe = isWireframe;
+                }
+            });
+        }
+    });
+
+    document.getElementById('btn-toggle-dummies').addEventListener('click', (e) => {
+        showDummies = !showDummies;
+        e.currentTarget.classList.toggle('active', showDummies);
+        if (currentRootGroup) {
+            currentRootGroup.traverse(child => {
+                if (child.name.includes("__dummy_")) child.visible = showDummies;
+            });
+        }
+    });
+
+    document.getElementById('btn-toggle-shader').addEventListener('click', toggleShaderMode);
+    document.getElementById('btn-toggle-uv').addEventListener('click', toggleUVFlip);
+
+    document.getElementById('btn-reset-cam').addEventListener('click', () => {
+        if (currentRootGroup) {
+            const box = new THREE.Box3().setFromObject(currentRootGroup);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            orbitControls.target.copy(center);
+            camera3D.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.8);
+            camera3D.lookAt(center);
+            orbitControls.update();
+        }
+    });
+
+    // Drawers toggle
+    const leftDrawer = document.getElementById('drawer-hierarchy');
+    const rightDrawer = document.getElementById('drawer-inspector');
+    document.getElementById('btn-toggle-hierarchy').addEventListener('click', () => leftDrawer.classList.toggle('collapsed'));
+    document.getElementById('btn-close-hierarchy').addEventListener('click', () => leftDrawer.classList.add('collapsed'));
+    document.getElementById('btn-toggle-inspector').addEventListener('click', () => rightDrawer.classList.toggle('collapsed'));
+    document.getElementById('btn-close-inspector').addEventListener('click', () => rightDrawer.classList.add('collapsed'));
+
+    // Inspector Tabs
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+            document.getElementById(`tab-${btn.dataset.tab}`).style.display = 'flex';
+        });
+    });
+
+    // Rename Node
+    document.getElementById('btn-apply-rename').addEventListener('click', () => {
+        if (!selectedNode) return;
+        const newName = document.getElementById('input-node-name').value.trim();
+        if (!newName) return;
+        selectedNode.name = newName;
+        const idx = selectedNode.userData.frameIndex;
+        if (currentDFF && currentDFF.frames[idx]) currentDFF.frames[idx].name = newName;
+        document.getElementById('inspector-title').textContent = newName;
+        renderHierarchyList();
+        showToast(`Nom o'zgartirildi: ${newName}`);
+    });
+
+    // Stance Tuning Sliders
+    setupStanceTuning();
+    setupCoordinateInputs();
+
+    // Hierarchy Drag & Drop and buttons
+    document.getElementById('btn-move-up').addEventListener('click', () => {
+        if (selectedNode) moveNodeOrder(selectedNode.userData.frameIndex, -1);
+    });
+    document.getElementById('btn-move-down').addEventListener('click', () => {
+        if (selectedNode) moveNodeOrder(selectedNode.userData.frameIndex, 1);
+    });
+    document.getElementById('btn-reparent').addEventListener('click', reparentSelectedNode);
+    document.getElementById('btn-delete-node').addEventListener('click', deleteSelectedNode);
+    document.getElementById('btn-add-dummy').addEventListener('click', showAddDummyDialog);
+}
+
+function handleMenuAction(action) {
+    switch (action) {
+        case 'gizmo-translate': transformControls.setMode('translate'); break;
+        case 'gizmo-rotate': transformControls.setMode('rotate'); break;
+        case 'gizmo-scale': transformControls.setMode('scale'); break;
+        case 'mirror-x': mirrorSelectedNode('x'); break;
+        case 'mirror-y': mirrorSelectedNode('y'); break;
+        case 'mirror-z': mirrorSelectedNode('z'); break;
+        case 'reorient-pivot': centerNodePivot(); break;
+        case 'calc-normals':
+            if (selectedMesh) {
+                selectedMesh.geometry.computeVertexNormals();
+                showToast("Normallar silliq hisoblandi!");
+            }
+            break;
+        case 'flip-normals':
+            if (selectedMesh) {
+                const normAttr = selectedMesh.geometry.attributes.normal;
+                if (normAttr) {
+                    for (let i = 0; i < normAttr.array.length; i++) normAttr.array[i] *= -1;
+                    normAttr.needsUpdate = true;
+                    showToast("Normallar teskarilandi (Invert)!");
+                }
+            }
+            break;
+        case 'open-uv-mapper': openUVEditor(); break;
+        case 'weld-vertices': document.getElementById('modal-weld-threshold').classList.remove('hidden'); break;
+        case 'delete-vertices': deleteSelectedElements(); break;
+        case 'detach-polygons': detachSelectedPolygons(); break;
+        case 'flip-polygons': flipSelectedPolygons(); break;
+        case 'assign-material': openMaterialEditorModal(); break;
+        case 'delete-polygons': deleteSelectedElements(); break;
+    }
+}
+
+function mirrorSelectedNode(axis) {
+    if (!selectedNode) {
+        showToast("Avval detalni tanlang!");
+        return;
+    }
+    selectedNode.scale[axis] *= -1;
+    // Invert polygon winding order so faces remain outwardly facing
+    selectedNode.traverse(c => {
+        if (c instanceof THREE.Mesh && c.geometry && c.geometry.index) {
+            const idxAttr = c.geometry.index;
+            for (let i = 0; i < idxAttr.count; i += 3) {
+                const tmp = idxAttr.getX(i + 1);
+                idxAttr.setX(i + 1, idxAttr.getX(i + 2));
+                idxAttr.setX(i + 2, tmp);
+            }
+            idxAttr.needsUpdate = true;
+            c.geometry.computeVertexNormals();
+        }
+    });
+    showToast(`🪞 Mirror ${axis.toUpperCase()} qo'llandi!`);
+}
+
+function centerNodePivot() {
+    if (!selectedNode) return;
+    const box = new THREE.Box3().setFromObject(selectedNode);
+    const center = box.getCenter(new THREE.Vector3());
+
+    const delta = center.clone().sub(selectedNode.position);
+    selectedNode.position.copy(center);
+
+    selectedNode.children.forEach(c => {
+        c.position.sub(delta);
+    });
+    showToast("🎯 Pivot detal markaziga to'g'rilandi!");
+}
+
+// -------------------------------------------------------------
+// STANCE TUNING & COORDINATES
+// -------------------------------------------------------------
+function setupStanceTuning() {
+    const posadkaSlider = document.getElementById('slider-posadka');
+    const posadkaVal = document.getElementById('val-posadka');
+    posadkaSlider.addEventListener('input', (e) => {
+        const offset = parseFloat(e.target.value) / 100.0;
+        posadkaVal.textContent = (offset > 0 ? "+" : "") + e.target.value + " sm";
+        frameGroups.forEach(grp => {
+            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
+                const baseZ = initialWheelPositions[grp.name] || 0;
+                grp.position.z = baseZ + offset;
+            }
+        });
+        if (selectedNode) updateInspectorCoordinates(selectedNode);
+    });
+
+    const camberSlider = document.getElementById('slider-camber');
+    const camberVal = document.getElementById('val-camber');
+    camberSlider.addEventListener('input', (e) => {
+        const deg = parseFloat(e.target.value);
+        camberVal.textContent = (deg > 0 ? "+" : "") + deg + "°";
+        const rad = deg * (Math.PI / 180.0);
+        frameGroups.forEach(grp => {
+            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
+                const isLeft = grp.name.includes("_lf_") || grp.name.includes("_lb_");
+                grp.rotation.y = isLeft ? -rad : rad;
+            }
+        });
+        if (selectedNode) updateInspectorCoordinates(selectedNode);
+    });
+
+    const scaleSlider = document.getElementById('slider-scale');
+    const scaleVal = document.getElementById('val-scale');
+    scaleSlider.addEventListener('input', (e) => {
+        const scale = parseFloat(e.target.value);
+        scaleVal.textContent = scale.toFixed(2) + "x";
+        frameGroups.forEach(grp => {
+            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) grp.scale.set(scale, scale, scale);
+        });
+        if (selectedNode) updateInspectorCoordinates(selectedNode);
+    });
+
+    const trackSlider = document.getElementById('slider-track');
+    const trackVal = document.getElementById('val-track');
+    trackSlider.addEventListener('input', (e) => {
+        const offset = parseFloat(e.target.value) / 100.0;
+        trackVal.textContent = (offset > 0 ? "+" : "") + e.target.value + " sm";
+        frameGroups.forEach(grp => {
+            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
+                const isLeft = grp.name.includes("_lf_") || grp.name.includes("_lb_");
+                const initialX = currentDFF.frames[grp.userData.frameIndex].pos[0];
+                grp.position.x = isLeft ? (initialX - offset) : (initialX + offset);
+            }
+        });
+        if (selectedNode) updateInspectorCoordinates(selectedNode);
+    });
+}
+
+function setupCoordinateInputs() {
+    ['pos', 'rot', 'scale'].forEach(type => {
+        ['x', 'y', 'z'].forEach(axis => {
+            const input = document.getElementById(`${type}-${axis}`);
+            const btnPlus = document.getElementById(`btn-${type}-${axis}-plus`);
+            const btnMinus = document.getElementById(`btn-${type}-${axis}-minus`);
+            const step = type === 'rot' ? 5.0 : 0.05;
+
+            input.addEventListener('change', () => {
+                if (!selectedNode) return;
+                applyCoordinateChange(type, axis, parseFloat(input.value) || 0);
+            });
+            btnPlus.addEventListener('click', () => {
+                if (!selectedNode) return;
+                let val = (parseFloat(input.value) || 0) + step;
+                input.value = val.toFixed(type === 'rot' ? 1 : 3);
+                applyCoordinateChange(type, axis, val);
+            });
+            btnMinus.addEventListener('click', () => {
+                if (!selectedNode) return;
+                let val = (parseFloat(input.value) || 0) - step;
+                input.value = val.toFixed(type === 'rot' ? 1 : 3);
+                applyCoordinateChange(type, axis, val);
+            });
+        });
+    });
+}
+
+function applyCoordinateChange(type, axis, val) {
+    if (!selectedNode) return;
+    if (type === 'pos') selectedNode.position[axis] = val;
+    else if (type === 'rot') selectedNode.rotation[axis] = val * (Math.PI / 180.0);
+    else if (type === 'scale') selectedNode.scale[axis] = val;
+}
+
+function updateInspectorCoordinates(grp) {
+    document.getElementById('pos-x').value = grp.position.x.toFixed(3);
+    document.getElementById('pos-y').value = grp.position.y.toFixed(3);
+    document.getElementById('pos-z').value = grp.position.z.toFixed(3);
+
+    document.getElementById('rot-x').value = (grp.rotation.x * (180 / Math.PI)).toFixed(1);
+    document.getElementById('rot-y').value = (grp.rotation.y * (180 / Math.PI)).toFixed(1);
+    document.getElementById('rot-z').value = (grp.rotation.z * (180 / Math.PI)).toFixed(1);
+
+    document.getElementById('scale-x').value = grp.scale.x.toFixed(3);
+    document.getElementById('scale-y').value = grp.scale.y.toFixed(3);
+    document.getElementById('scale-z').value = grp.scale.z.toFixed(3);
+}
+
+// -------------------------------------------------------------
+// NODE SELECTION & HIERARCHY TREE
+// -------------------------------------------------------------
+function selectNodeByIndex(index, specificMesh = null) {
+    if (index < 0 || index >= frameGroups.length) return;
+    const grp = frameGroups[index];
+    selectedNode = grp;
+
+    if (currentEditLevel === 4) {
+        transformControls.attach(grp);
+    }
+
+    if (!specificMesh) {
+        specificMesh = grp.children.find(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
+    }
+    selectedMesh = specificMesh;
+
+    document.querySelectorAll('.node-item').forEach(item => {
+        item.classList.toggle('selected', parseInt(item.dataset.index) === index);
+    });
+
+    document.getElementById('drawer-inspector').classList.remove('collapsed');
+    document.getElementById('inspector-title').textContent = grp.name;
+    document.getElementById('input-node-name').value = grp.name;
+
+    updateInspectorCoordinates(grp);
+
+    selectedPolygonIndices.clear();
+    selectedVertexIndices.clear();
+    updatePolygonHighlight();
+    updateVertexPointsHelper();
+}
+
+function renderHierarchyList() {
+    const listContainer = document.getElementById('hierarchy-list');
+    listContainer.innerHTML = '';
+
+    frameGroups.forEach((grp, idx) => {
+        const item = document.createElement('div');
+        item.className = 'node-item' + (selectedNode === grp ? ' selected' : '');
+        item.dataset.index = idx;
+        item.dataset.name = grp.name;
+        item.draggable = true;
+
+        const info = document.createElement('div');
+        info.className = 'node-info';
+
+        const icon = document.createElement('span');
+        icon.className = 'node-icon';
+        const isDummy = !grp.children.some(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
+        icon.textContent = isDummy ? "📍" : "🚗";
+
+        const name = document.createElement('span');
+        name.className = 'node-name';
+        name.textContent = `${idx}: ${grp.name}`;
+
+        info.appendChild(icon);
+        info.appendChild(name);
+
+        const actions = document.createElement('div');
+        actions.style.display = 'flex';
+        actions.style.alignItems = 'center';
+        actions.style.gap = '2px';
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'node-eye';
+        editBtn.innerHTML = "✏️";
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const newName = prompt("Yangi nom:", grp.name);
+            if (newName && newName.trim()) {
+                grp.name = newName.trim();
+                currentDFF.frames[idx].name = newName.trim();
+                renderHierarchyList();
+                showToast(`Nom o'zgardi: ${grp.name}`);
+            }
+        });
+
+        const eyeBtn = document.createElement('button');
+        eyeBtn.className = 'node-eye';
+        eyeBtn.innerHTML = "👁️";
+        eyeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            grp.visible = !grp.visible;
+            eyeBtn.style.opacity = grp.visible ? "1.0" : "0.3";
+        });
+
+        actions.appendChild(editBtn);
+        actions.appendChild(eyeBtn);
+
+        item.appendChild(info);
+        item.appendChild(actions);
+
+        item.addEventListener('click', () => selectNodeByIndex(idx));
+
+        listContainer.appendChild(item);
+    });
+}
+
+function moveNodeOrder(index, direction) {
+    if (!currentDFF) return;
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= currentDFF.frames.length) return;
+
+    const tempFrame = currentDFF.frames[index];
+    currentDFF.frames[index] = currentDFF.frames[targetIdx];
+    currentDFF.frames[targetIdx] = tempFrame;
+    currentDFF.frames[index].index = index;
+    currentDFF.frames[targetIdx].index = targetIdx;
+
+    const tempGrp = frameGroups[index];
+    frameGroups[index] = frameGroups[targetIdx];
+    frameGroups[targetIdx] = tempGrp;
+    frameGroups[index].userData.frameIndex = index;
+    frameGroups[targetIdx].userData.frameIndex = targetIdx;
+
+    renderHierarchyList();
+    selectNodeByIndex(targetIdx);
+}
+
+function reparentSelectedNode() {
+    if (!selectedNode || !currentDFF) return;
+    const currentIdx = selectedNode.userData.frameIndex;
+    const currentName = selectedNode.name;
+
+    const list = currentDFF.frames.map((f, i) => `${i}: ${f.name}`).slice(0, 30).join("\n");
+    const input = prompt(`"${currentName}" ni qaysi detal ichiga biriktirasiz?\nRaqamini kiriting:\n\n${list}`);
+    if (!input) return;
+
+    const targetIdx = parseInt(input.trim());
+    if (isNaN(targetIdx) || targetIdx < 0 || targetIdx >= currentDFF.frames.length || targetIdx === currentIdx) {
+        alert("Noto'g'ri raqam kiritildi!");
         return;
     }
 
-    try {
-        const otherModel = new DFFModel();
-        otherModel.parse(arrayBuffer);
-
-        // Determine parent for merged model (attach to selected node or root chassis)
-        let parentIndex = 0;
-        if (selectedNode && selectedNode.userData && selectedNode.userData.frameIndex !== undefined) {
-            parentIndex = selectedNode.userData.frameIndex;
-        }
-
-        currentDFF.mergeModel(otherModel, parentIndex);
-
-        // Sync and rebuild 3D scene
-        buildThreeSceneFromDFF(currentDFF);
-
-        const shortName = fileName.replace(/\.[^/.]+$/, "");
-        showToast(`Qo'shildi: ${shortName} (${otherModel.frames.length} qism)`);
-    } catch (err) {
-        alert("DFF qo'shishda xatolik: " + err.message);
-    }
+    currentDFF.frames[currentIdx].parentIndex = targetIdx;
+    frameGroups[targetIdx].add(selectedNode);
+    renderHierarchyList();
+    showToast(`"${currentName}" -> "${currentDFF.frames[targetIdx].name}" ga biriktirildi!`);
 }
 
-// Synchronize Three.js Scene back into DFFModel and Export
+function deleteSelectedNode() {
+    if (!selectedNode || !currentDFF) return;
+    const idx = selectedNode.userData.frameIndex;
+    const name = selectedNode.name;
+    if (!confirm(`"${name}" detalini o'chirmoqchimisiz?`)) return;
+
+    transformControls.detach();
+    selectedNode.parent.remove(selectedNode);
+
+    currentDFF.frames.splice(idx, 1);
+    frameGroups.splice(idx, 1);
+
+    for (let i = 0; i < currentDFF.frames.length; i++) {
+        currentDFF.frames[i].index = i;
+        if (currentDFF.frames[i].parentIndex > idx) currentDFF.frames[i].parentIndex--;
+        else if (currentDFF.frames[i].parentIndex === idx) currentDFF.frames[i].parentIndex = 0;
+        frameGroups[i].userData.frameIndex = i;
+    }
+
+    currentDFF.atomics = currentDFF.atomics.filter(a => a.frameIndex !== idx);
+    for (let a of currentDFF.atomics) {
+        if (a.frameIndex > idx) a.frameIndex--;
+    }
+
+    selectedNode = null;
+    selectedMesh = null;
+    renderHierarchyList();
+    showToast(`O'chirildi: ${name}`);
+}
+
+function showAddDummyDialog() {
+    const dummyName = prompt("Yangi Dummy nomi (masalan: wheel_rf_dummy, headlight_l, exhaust):");
+    if (!dummyName || !dummyName.trim() || !currentDFF) return;
+
+    const newIndex = currentDFF.frames.length;
+    let parentIndex = selectedNode ? selectedNode.userData.frameIndex : 0;
+
+    const newFrame = {
+        index: newIndex,
+        name: dummyName.trim(),
+        rot: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        pos: [0, 0, 0],
+        parentIndex: parentIndex,
+        matrixFlags: 0x00020003,
+        extensions: []
+    };
+    currentDFF.frames.push(newFrame);
+
+    const group = new THREE.Group();
+    group.name = newFrame.name;
+    group.userData = { frameIndex: newIndex, frameData: newFrame };
+    group.position.set(0, 0, 0);
+
+    const dummyGeo = new THREE.SphereGeometry(0.06, 12, 12);
+    const dummyMesh = new THREE.Mesh(dummyGeo, new THREE.MeshBasicMaterial({ color: 0xa855f7 }));
+    dummyMesh.name = "__dummy_helper__";
+    group.add(dummyMesh);
+    group.add(new THREE.AxesHelper(0.18));
+
+    frameGroups.push(group);
+    if (frameGroups[parentIndex]) frameGroups[parentIndex].add(group);
+    else currentRootGroup.add(group);
+
+    renderHierarchyList();
+    selectNodeByIndex(newIndex);
+    showToast(`Yangi dummy qo'shildi: ${newFrame.name}`);
+}
+
+// -------------------------------------------------------------
+// DFF EXPORT & EXTERNAL MERGE
+// -------------------------------------------------------------
 function exportCurrentDFF() {
     if (!currentDFF || !currentRootGroup) {
-        showToast("Eksport qilish uchun avval modelni oching!");
+        showToast("Avval modelni oching!");
         return;
     }
 
-    // 1. Update frame positions, rotations, names from Three.js scene
+    // 1. Sync frame positions and rotations
     for (let i = 0; i < currentDFF.frames.length; i++) {
         const grp = frameGroups[i];
         if (!grp) continue;
 
-        // Position
         currentDFF.frames[i].pos[0] = grp.position.x;
         currentDFF.frames[i].pos[1] = grp.position.y;
         currentDFF.frames[i].pos[2] = grp.position.z;
 
-        // Rotation matrix from Quaternion
         const m = new THREE.Matrix4().makeRotationFromQuaternion(grp.quaternion);
         const te = m.elements;
         currentDFF.frames[i].rot = [
@@ -568,30 +2376,110 @@ function exportCurrentDFF() {
             te[4], te[5], te[6],
             te[8], te[9], te[10]
         ];
-
-        // Name
         currentDFF.frames[i].name = grp.name;
     }
 
-    // 2. Serialize DFF
+    // 2. Sync modified vertices, normals, UVs and triangles from Three.js scene back to DFF geometries
+    frameGroups.forEach(grp => {
+        grp.children.forEach(c => {
+            if (c instanceof THREE.Mesh && !c.name.includes("__dummy_") && c.userData.geometryIndex !== undefined) {
+                const geom = currentDFF.geometries[c.userData.geometryIndex];
+                if (geom && c.geometry) {
+                    const posAttr = c.geometry.attributes.position;
+                    const normAttr = c.geometry.attributes.normal;
+                    const uvAttr = c.geometry.attributes.uv;
+
+                    // Sync Vertices
+                    if (posAttr) {
+                        geom.numVertices = posAttr.count;
+                        geom.vertices = [];
+                        for (let v = 0; v < posAttr.count; v++) {
+                            geom.vertices.push({ x: posAttr.getX(v), y: posAttr.getY(v), z: posAttr.getZ(v) });
+                        }
+                    }
+
+                    // Sync Normals
+                    if (normAttr) {
+                        geom.normals = [];
+                        for (let n = 0; n < normAttr.count; n++) {
+                            geom.normals.push({ x: normAttr.getX(n), y: normAttr.getY(n), z: normAttr.getZ(n) });
+                        }
+                    }
+
+                    // Sync UVs
+                    if (uvAttr && geom.texCoordSets && geom.texCoordSets.length > 0) {
+                        geom.texCoordSets[0] = [];
+                        for (let u = 0; u < uvAttr.count; u++) {
+                            geom.texCoordSets[0].push({
+                                u: uvAttr.getX(u),
+                                v: isUVFlipped ? (1.0 - uvAttr.getY(u)) : uvAttr.getY(u)
+                            });
+                        }
+                    }
+
+                    // Sync Triangles & BinMesh
+                    if (c.geometry.index) {
+                        const indexAttr = c.geometry.index;
+                        const numTris = indexAttr.count / 3;
+                        geom.numTriangles = numTris;
+                        geom.triangles = [];
+
+                        const binMeshes = [];
+                        if (c.geometry.groups && c.geometry.groups.length > 0) {
+                            c.geometry.groups.forEach(g => {
+                                const subIndices = [];
+                                for (let k = g.start; k < g.start + g.count; k++) {
+                                    subIndices.push(indexAttr.getX(k));
+                                }
+                                binMeshes.push({ matIndex: g.materialIndex || 0, indices: subIndices });
+                            });
+                        } else {
+                            const allIdx = [];
+                            for (let k = 0; k < indexAttr.count; k++) allIdx.push(indexAttr.getX(k));
+                            binMeshes.push({ matIndex: 0, indices: allIdx });
+                        }
+
+                        // Rebuild triangles list for legacy struct
+                        for (let t = 0; t < numTris; t++) {
+                            const v1 = indexAttr.getX(t * 3);
+                            const v2 = indexAttr.getX(t * 3 + 1);
+                            const v3 = indexAttr.getX(t * 3 + 2);
+                            let matIndex = 0;
+                            if (c.geometry.groups) {
+                                for (const g of c.geometry.groups) {
+                                    if (t * 3 >= g.start && t * 3 < g.start + g.count) {
+                                        matIndex = g.materialIndex;
+                                        break;
+                                    }
+                                }
+                            }
+                            geom.triangles.push({ v1, v2, v3, matIndex });
+                        }
+
+                        if (!geom.binMesh) geom.binMesh = { flags: 0, numMeshes: binMeshes.length, totalIndices: indexAttr.count, meshes: binMeshes };
+                        else {
+                            geom.binMesh.flags = 0; // Standard triangle list
+                            geom.binMesh.numMeshes = binMeshes.length;
+                            geom.binMesh.totalIndices = indexAttr.count;
+                            geom.binMesh.meshes = binMeshes;
+                        }
+                    }
+                }
+            }
+        });
+    });
+
     showToast("DFF yig'ilmoqda...");
     const dffBytes = currentDFF.serialize();
-
-    // 3. Native iOS Bridge or Web Download
     const fileName = (currentDFF.fileName || "car_mod") + ".dff";
 
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.exportDFF) {
         let binary = '';
-        const len = dffBytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(dffBytes[i]);
-        }
-        const b64 = window.btoa(binary);
-
+        for (let i = 0; i < dffBytes.byteLength; i++) binary += String.fromCharCode(dffBytes[i]);
         window.webkit.messageHandlers.exportDFF.postMessage({
             fileName: fileName,
-            base64Data: b64,
-            sizeBytes: len
+            base64Data: window.btoa(binary),
+            sizeBytes: dffBytes.byteLength
         });
     } else {
         const blob = new Blob([dffBytes], { type: "application/octet-stream" });
@@ -607,50 +2495,26 @@ function exportCurrentDFF() {
     }
 }
 
-// Texture pool mapping textureName.toLowerCase() -> THREE.Texture
-let loadedTexturesPool = {};
-
-function applyTextureMapToScene() {
-    if (!currentRootGroup) return;
-    let appliedCount = 0;
-
-    currentRootGroup.traverse(child => {
-        if (child instanceof THREE.Mesh && !child.name.includes("__dummy_")) {
-            const mats = Array.isArray(child.material) ? child.material : [child.material];
-            mats.forEach(m => {
-                const dffMat = m.userData ? m.userData.dffMat : null;
-                if (dffMat && dffMat.textureName) {
-                    const cleanName = dffMat.textureName.toLowerCase().trim();
-                    let matchedTex = loadedTexturesPool[cleanName];
-
-                    if (!matchedTex) {
-                        // Partial match (e.g. "huntley" matches "huntley92...")
-                        for (let k in loadedTexturesPool) {
-                            if (k.includes(cleanName) || cleanName.includes(k)) {
-                                matchedTex = loadedTexturesPool[k];
-                                break;
-                            }
-                        }
-                    }
-
-                    if (matchedTex) {
-                        m.map = matchedTex;
-                        m.needsUpdate = true;
-                        appliedCount++;
-                    }
-                }
-            });
-        }
-    });
-
-    if (appliedCount > 0) {
-        if (isShaderMode) {
-            updateAllMaterialsShader();
-        }
-        showToast(`${appliedCount} ta qismga teksturalar ulandi!`);
+function mergeExternalDFF(arrayBuffer, fileName) {
+    if (!currentDFF) {
+        showToast("Avval asosiy modelni oching!");
+        return;
+    }
+    try {
+        const otherModel = new DFFModel();
+        otherModel.parse(arrayBuffer);
+        const parentIndex = selectedNode ? selectedNode.userData.frameIndex : 0;
+        currentDFF.mergeModel(otherModel, parentIndex);
+        buildThreeSceneFromDFF(currentDFF);
+        showToast(`Qo'shildi: ${fileName} (${otherModel.frames.length} qism)`);
+    } catch (err) {
+        alert("DFF qo'shishda xatolik: " + err.message);
     }
 }
 
+// -------------------------------------------------------------
+// TXD & TEXTURE PARSING
+// -------------------------------------------------------------
 function processTXDData(arrayBuffer, fileName) {
     try {
         const parsed = TXDParser.parse(arrayBuffer);
@@ -688,896 +2552,57 @@ function processImageFile(file) {
     reader.readAsDataURL(file);
 }
 
-// UI Setup & Event Handlers
-function setupUIEvents() {
-    // 1. Open primary DFF or multiple files (.dff, .txd, images)
-    const fileInput = document.getElementById('dff-file-input');
-    fileInput.addEventListener('change', (e) => {
-        const fileList = Array.from(e.target.files);
-        if (fileList.length === 0) return;
-
-        // Separate DFF and TXD/images
-        const dffFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.dff'));
-        const txdFiles = fileList.filter(f => f.name.toLowerCase().endsWith('.txd'));
-        const imgFiles = fileList.filter(f => /\.(png|jpe?g)$/i.test(f.name));
-
-        if (dffFiles.length > 0) {
-            const dffFile = dffFiles[0];
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const model = new DFFModel();
-                    model.fileName = dffFile.name.replace(/\.[^/.]+$/, "");
-                    model.parse(event.target.result);
-                    buildThreeSceneFromDFF(model);
-
-                    // Load TXDs after DFF is loaded
-                    txdFiles.forEach(tf => {
-                        const tr = new FileReader();
-                        tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
-                        tr.readAsArrayBuffer(tf);
-                    });
-
-                    // Load image files
-                    imgFiles.forEach(im => processImageFile(im));
-                } catch (err) {
-                    alert("DFF ochishda xatolik: " + err.message);
-                }
-            };
-            reader.readAsArrayBuffer(dffFile);
-        } else if (txdFiles.length > 0) {
-            txdFiles.forEach(tf => {
-                const tr = new FileReader();
-                tr.onload = (ev) => processTXDData(ev.target.result, tf.name);
-                tr.readAsArrayBuffer(tf);
-            });
-        }
-    });
-
-    document.getElementById('btn-open-file').addEventListener('click', () => {
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
-            window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: "open" });
-        } else {
-            fileInput.click();
-        }
-    });
-
-    // Dedicated TXD button
-    const txdInput = document.getElementById('txd-file-input');
-    txdInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files);
-        files.forEach(f => {
-            if (f.name.toLowerCase().endsWith('.txd')) {
-                const r = new FileReader();
-                r.onload = (ev) => processTXDData(ev.target.result, f.name);
-                r.readAsArrayBuffer(f);
-            } else if (/\.(png|jpe?g)$/i.test(f.name)) {
-                processImageFile(f);
-            }
-        });
-    });
-
-    document.getElementById('btn-open-txd').addEventListener('click', () => {
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
-            window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: "txd" });
-        } else {
-            txdInput.click();
-        }
-    });
-
-    // 2. Merge secondary DFF
-    const mergeInput = document.getElementById('dff-merge-input');
-    mergeInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            mergeExternalDFF(event.target.result, file.name);
-        };
-        reader.readAsArrayBuffer(file);
-    });
-
-    const triggerMerge = () => {
-        if (!currentDFF) {
-            showToast("Avval asosiy modelni oching!");
-            return;
-        }
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
-            window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: "merge" });
-        } else {
-            mergeInput.click();
-        }
-    };
-    document.getElementById('btn-merge-file').addEventListener('click', triggerMerge);
-    document.getElementById('btn-hier-add-dff').addEventListener('click', triggerMerge);
-
-    // 3. Export DFF
-    document.getElementById('btn-export-dff').addEventListener('click', exportCurrentDFF);
-
-    // 4. Toggle Drawers
-    const leftDrawer = document.getElementById('drawer-hierarchy');
-    const rightDrawer = document.getElementById('drawer-inspector');
-
-    document.getElementById('btn-toggle-hierarchy').addEventListener('click', () => {
-        leftDrawer.classList.toggle('collapsed');
-    });
-    document.getElementById('btn-close-hierarchy').addEventListener('click', () => {
-        leftDrawer.classList.add('collapsed');
-    });
-
-    document.getElementById('btn-toggle-inspector').addEventListener('click', () => {
-        rightDrawer.classList.toggle('collapsed');
-    });
-    document.getElementById('btn-close-inspector').addEventListener('click', () => {
-        rightDrawer.classList.add('collapsed');
-    });
-
-    // 5. View Toolbar actions
-    document.getElementById('btn-toggle-wireframe').addEventListener('click', (e) => {
-        isWireframe = !isWireframe;
-        e.currentTarget.classList.toggle('active', isWireframe);
-        if (currentRootGroup) {
-            currentRootGroup.traverse(child => {
-                if (child instanceof THREE.Mesh && !child.name.includes("__dummy_")) {
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(m => m.wireframe = isWireframe);
-                    } else if (child.material) {
-                        child.material.wireframe = isWireframe;
+function applyTextureMapToScene() {
+    if (!currentRootGroup) return;
+    let count = 0;
+    currentRootGroup.traverse(child => {
+        if (child instanceof THREE.Mesh && !child.name.includes("__dummy_")) {
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach(m => {
+                const texName = m.userData?.dffMat?.textureName?.toLowerCase()?.trim();
+                if (texName) {
+                    let matched = loadedTexturesPool[texName];
+                    if (!matched) {
+                        for (let k in loadedTexturesPool) {
+                            if (k.includes(texName) || texName.includes(k)) {
+                                matched = loadedTexturesPool[k];
+                                break;
+                            }
+                        }
+                    }
+                    if (matched) {
+                        m.map = matched;
+                        m.needsUpdate = true;
+                        count++;
                     }
                 }
             });
         }
     });
-
-    document.getElementById('btn-toggle-dummies').addEventListener('click', (e) => {
-        showDummies = !showDummies;
-        e.currentTarget.classList.toggle('active', showDummies);
-        if (currentRootGroup) {
-            currentRootGroup.traverse(child => {
-                if (child.name.includes("__dummy_")) {
-                    child.visible = showDummies;
-                }
-            });
-        }
-    });
-
-    document.getElementById('btn-toggle-shader').addEventListener('click', toggleShaderMode);
-    document.getElementById('btn-toggle-uv').addEventListener('click', toggleUVFlip);
-
-    document.getElementById('btn-reset-cam').addEventListener('click', () => {
-        if (currentRootGroup) {
-            const box = new THREE.Box3().setFromObject(currentRootGroup);
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            orbitControls.target.copy(center);
-            camera.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.8);
-            camera.lookAt(center);
-            orbitControls.update();
-        }
-    });
-
-    // 6. Gizmo Mode buttons
-    const gizmoBtns = document.querySelectorAll('.gizmo-btn');
-    gizmoBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            gizmoBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const mode = btn.dataset.mode;
-            transformControls.setMode(mode);
-        });
-    });
-
-    // 7. Inspector Tabs
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            tabBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const tabId = btn.dataset.tab;
-            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-            document.getElementById(`tab-${tabId}`).style.display = 'flex';
-        });
-    });
-
-    // 8. Rename node
-    const renameInput = document.getElementById('input-node-name');
-    const applyRenameBtn = document.getElementById('btn-apply-rename');
-    const executeRename = () => {
-        if (!selectedNode) return;
-        const newName = renameInput.value.trim();
-        if (!newName) return;
-
-        selectedNode.name = newName;
-        const idx = selectedNode.userData.frameIndex;
-        if (currentDFF && currentDFF.frames[idx]) {
-            currentDFF.frames[idx].name = newName;
-        }
-        document.getElementById('inspector-title').textContent = newName;
-        renderHierarchyList();
-        showToast(`Nom o'zgartirildi: ${newName}`);
-    };
-    applyRenameBtn.addEventListener('click', executeRename);
-    renameInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') executeRename();
-    });
-
-    // 9. Hierarchy Reorder: Move Up / Down
-    document.getElementById('btn-move-up').addEventListener('click', () => {
-        if (!selectedNode) return;
-        moveNodeOrder(selectedNode.userData.frameIndex, -1);
-    });
-
-    document.getElementById('btn-move-down').addEventListener('click', () => {
-        if (!selectedNode) return;
-        moveNodeOrder(selectedNode.userData.frameIndex, 1);
-    });
-
-    // 10. Reparent Node
-    document.getElementById('btn-reparent').addEventListener('click', reparentSelectedNode);
-
-    // 11. Delete Node
-    document.getElementById('btn-delete-node').addEventListener('click', deleteSelectedNode);
-
-    // 12. Quick Tuning: Posadka (Lowering) Slider
-    const posadkaSlider = document.getElementById('slider-posadka');
-    const posadkaVal = document.getElementById('val-posadka');
-    posadkaSlider.addEventListener('input', (e) => {
-        const offset = parseFloat(e.target.value) / 100.0;
-        posadkaVal.textContent = (offset > 0 ? "+" : "") + e.target.value + " sm";
-
-        frameGroups.forEach(grp => {
-            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
-                const baseZ = initialWheelPositions[grp.name] || 0;
-                grp.position.z = baseZ + offset;
-            }
-        });
-        if (selectedNode) updateInspectorCoordinates(selectedNode);
-    });
-
-    // Quick Tuning: Wheel Camber (Razval) Slider
-    const camberSlider = document.getElementById('slider-camber');
-    const camberVal = document.getElementById('val-camber');
-    camberSlider.addEventListener('input', (e) => {
-        const deg = parseFloat(e.target.value);
-        camberVal.textContent = (deg > 0 ? "+" : "") + deg + "°";
-        const rad = deg * (Math.PI / 180.0);
-
-        frameGroups.forEach(grp => {
-            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
-                const isLeft = grp.name.includes("_lf_") || grp.name.includes("_lb_");
-                grp.rotation.y = isLeft ? -rad : rad;
-            }
-        });
-        if (selectedNode) updateInspectorCoordinates(selectedNode);
-    });
-
-    // Quick Tuning: Wheel Scale
-    const scaleSlider = document.getElementById('slider-scale');
-    const scaleVal = document.getElementById('val-scale');
-    scaleSlider.addEventListener('input', (e) => {
-        const scale = parseFloat(e.target.value);
-        scaleVal.textContent = scale.toFixed(2) + "x";
-
-        frameGroups.forEach(grp => {
-            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
-                grp.scale.set(scale, scale, scale);
-            }
-        });
-        if (selectedNode) updateInspectorCoordinates(selectedNode);
-    });
-
-    // Quick Tuning: Track Width (Offset)
-    const trackSlider = document.getElementById('slider-track');
-    const trackVal = document.getElementById('val-track');
-    trackSlider.addEventListener('input', (e) => {
-        const offset = parseFloat(e.target.value) / 100.0;
-        trackVal.textContent = (offset > 0 ? "+" : "") + e.target.value + " sm";
-
-        frameGroups.forEach(grp => {
-            if (grp.name.includes("wheel_") && grp.name.includes("_dummy")) {
-                const isLeft = grp.name.includes("_lf_") || grp.name.includes("_lb_");
-                const initialX = currentDFF.frames[grp.userData.frameIndex].pos[0];
-                grp.position.x = isLeft ? (initialX - offset) : (initialX + offset);
-            }
-        });
-        if (selectedNode) updateInspectorCoordinates(selectedNode);
-    });
-
-    // 13. Material Editor Setup
-    setupMaterialEditor();
-
-    // 14. Coordinate inputs and Step buttons (+/-)
-    setupCoordinateInputs();
-
-    // 15. Hierarchy Search
-    document.getElementById('hierarchy-search').addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
-        document.querySelectorAll('.node-item').forEach(item => {
-            const name = item.dataset.name.toLowerCase();
-            item.style.display = name.includes(query) ? 'flex' : 'none';
-        });
-    });
-
-    // 16. Add Dummy Button
-    document.getElementById('btn-add-dummy').addEventListener('click', showAddDummyDialog);
+    if (count > 0 && isShaderMode) updateAllMaterialsShader();
 }
 
-// Material Editor Logic
-function setupMaterialEditor() {
-    const matSelect = document.getElementById('mat-select');
-    const colorPicker = document.getElementById('mat-color-picker');
-    const colorHex = document.getElementById('mat-color-hex');
-    const alphaSlider = document.getElementById('slider-mat-alpha');
-    const alphaVal = document.getElementById('val-mat-alpha');
-    const texNameInput = document.getElementById('input-mat-texname');
-    const btnPickTexImg = document.getElementById('btn-pick-tex-img');
-    const texFileInput = document.getElementById('tex-file-input');
-    const ambientSlider = document.getElementById('slider-mat-ambient');
-    const ambientVal = document.getElementById('val-mat-ambient');
-    const specularSlider = document.getElementById('slider-mat-specular');
-    const specularVal = document.getElementById('val-mat-specular');
-
-    matSelect.addEventListener('change', () => {
-        selectedMaterialIndex = parseInt(matSelect.value) || 0;
-        updateMaterialControls();
-    });
-
-    colorPicker.addEventListener('input', (e) => {
-        colorHex.value = e.target.value.toUpperCase();
-        applyMaterialColor(e.target.value, parseFloat(alphaSlider.value) / 100.0);
-    });
-
-    colorHex.addEventListener('change', (e) => {
-        colorPicker.value = e.target.value;
-        applyMaterialColor(e.target.value, parseFloat(alphaSlider.value) / 100.0);
-    });
-
-    alphaSlider.addEventListener('input', (e) => {
-        alphaVal.textContent = e.target.value + "%";
-        applyMaterialColor(colorPicker.value, parseFloat(e.target.value) / 100.0);
-    });
-
-    texNameInput.addEventListener('input', (e) => {
-        applyMaterialTextureName(e.target.value.trim());
-    });
-
-    ambientSlider.addEventListener('input', (e) => {
-        ambientVal.textContent = parseFloat(e.target.value).toFixed(2);
-        applyMaterialLighting('ambient', parseFloat(e.target.value));
-    });
-
-    specularSlider.addEventListener('input', (e) => {
-        specularVal.textContent = parseFloat(e.target.value).toFixed(2);
-        applyMaterialLighting('specular', parseFloat(e.target.value));
-    });
-
-    // Texture image file loader
-    btnPickTexImg.addEventListener('click', () => {
-        texFileInput.click();
-    });
-
-    texFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const imgUrl = event.target.result;
-            const texLoader = new THREE.TextureLoader();
-            texLoader.load(imgUrl, (texture) => {
-                texture.flipY = false;
-                texture.wrapS = THREE.RepeatWrapping;
-                texture.wrapT = THREE.RepeatWrapping;
-
-                // Update Three.js Mesh Material map
-                if (selectedMesh) {
-                    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
-                    if (mats[selectedMaterialIndex]) {
-                        mats[selectedMaterialIndex].map = texture;
-                        mats[selectedMaterialIndex].needsUpdate = true;
-                    }
-                }
-
-                // Show preview box
-                document.getElementById('tex-preview-box').style.display = 'flex';
-                document.getElementById('tex-preview-img').src = imgUrl;
-                document.getElementById('tex-preview-name').textContent = file.name;
-
-                // Set texture name from file
-                const baseName = file.name.replace(/\.[^/.]+$/, "");
-                texNameInput.value = baseName;
-                applyMaterialTextureName(baseName);
-                showToast(`Tekstura ulandi: ${file.name}`);
-            });
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
-function updateMaterialControls() {
-    if (!selectedMesh) return;
-    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
-    const threeMat = mats[selectedMaterialIndex];
-    if (!threeMat) return;
-
-    const hex = "#" + threeMat.color.getHexString().toUpperCase();
-    document.getElementById('mat-color-picker').value = hex;
-    document.getElementById('mat-color-hex').value = hex;
-
-    const alpha = Math.round((threeMat.opacity !== undefined ? threeMat.opacity : 1.0) * 100);
-    document.getElementById('slider-mat-alpha').value = alpha;
-    document.getElementById('val-mat-alpha').textContent = alpha + "%";
-
-    const dffMat = threeMat.userData ? threeMat.userData.dffMat : null;
-    if (dffMat) {
-        document.getElementById('input-mat-texname').value = dffMat.textureName || "";
-        document.getElementById('slider-mat-ambient').value = dffMat.ambient || 1.0;
-        document.getElementById('val-mat-ambient').textContent = (dffMat.ambient || 1.0).toFixed(2);
-        document.getElementById('slider-mat-specular').value = dffMat.specular || 1.0;
-        document.getElementById('val-mat-specular').textContent = (dffMat.specular || 1.0).toFixed(2);
-    }
-}
-
-function applyMaterialColor(hexStr, alpha) {
-    if (!selectedMesh) return;
-    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
-    const threeMat = mats[selectedMaterialIndex];
-    if (!threeMat) return;
-
-    const col = new THREE.Color(hexStr);
-    threeMat.color.copy(col);
-    threeMat.transparent = alpha < 0.99;
-    threeMat.opacity = alpha;
-    threeMat.needsUpdate = true;
-
-    // Update DFF model material
-    if (threeMat.userData && threeMat.userData.dffMat) {
-        threeMat.userData.dffMat.color = {
-            r: Math.round(col.r * 255),
-            g: Math.round(col.g * 255),
-            b: Math.round(col.b * 255),
-            a: Math.round(alpha * 255)
-        };
-    }
-}
-
-function applyMaterialTextureName(name) {
-    if (!selectedMesh) return;
-    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
-    const threeMat = mats[selectedMaterialIndex];
-    if (threeMat && threeMat.userData && threeMat.userData.dffMat) {
-        threeMat.userData.dffMat.textureName = name;
-        threeMat.userData.dffMat.hasTexture = name.length > 0 ? 1 : 0;
-    }
-}
-
-function applyMaterialLighting(type, val) {
-    if (!selectedMesh) return;
-    const mats = Array.isArray(selectedMesh.material) ? selectedMesh.material : [selectedMesh.material];
-    const threeMat = mats[selectedMaterialIndex];
-    if (threeMat && threeMat.userData && threeMat.userData.dffMat) {
-        threeMat.userData.dffMat[type] = val;
-    }
-}
-
-// Coordinate Inputs and Step buttons setup
-function setupCoordinateInputs() {
-    ['pos', 'rot', 'scale'].forEach(type => {
-        ['x', 'y', 'z'].forEach(axis => {
-            const input = document.getElementById(`${type}-${axis}`);
-            const btnPlus = document.getElementById(`btn-${type}-${axis}-plus`);
-            const btnMinus = document.getElementById(`btn-${type}-${axis}-minus`);
-            const step = type === 'rot' ? 5.0 : 0.05;
-
-            input.addEventListener('change', () => {
-                if (!selectedNode) return;
-                const val = parseFloat(input.value) || 0;
-                applyCoordinateChange(type, axis, val);
-            });
-
-            btnPlus.addEventListener('click', () => {
-                if (!selectedNode) return;
-                let val = parseFloat(input.value) || 0;
-                val += step;
-                input.value = val.toFixed(type === 'rot' ? 1 : 3);
-                applyCoordinateChange(type, axis, val);
-            });
-
-            btnMinus.addEventListener('click', () => {
-                if (!selectedNode) return;
-                let val = parseFloat(input.value) || 0;
-                val -= step;
-                input.value = val.toFixed(type === 'rot' ? 1 : 3);
-                applyCoordinateChange(type, axis, val);
-            });
-        });
-    });
-}
-
-function applyCoordinateChange(type, axis, val) {
-    if (!selectedNode) return;
-
-    if (type === 'pos') {
-        selectedNode.position[axis] = val;
-    } else if (type === 'rot') {
-        const rad = val * (Math.PI / 180.0);
-        selectedNode.rotation[axis] = rad;
-    } else if (type === 'scale') {
-        selectedNode.scale[axis] = val;
-    }
-}
-
-// Select a node by frame index
-function selectNodeByIndex(index, specificMesh = null) {
-    if (index < 0 || index >= frameGroups.length) return;
-    const grp = frameGroups[index];
-    selectedNode = grp;
-
-    transformControls.attach(grp);
-
-    // Find first mesh if not provided
-    if (!specificMesh) {
-        specificMesh = grp.children.find(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
-    }
-    selectedMesh = specificMesh;
-
-    // Update Hierarchy items active state
-    document.querySelectorAll('.node-item').forEach(item => {
-        item.classList.toggle('selected', parseInt(item.dataset.index) === index);
-    });
-
-    // Update Inspector Drawer
-    document.getElementById('drawer-inspector').classList.remove('collapsed');
-    document.getElementById('inspector-title').textContent = grp.name;
-    document.getElementById('input-node-name').value = grp.name;
-
-    updateInspectorCoordinates(grp);
-
-    // Populate Material Selector for this mesh
-    populateMaterialSelector(specificMesh);
-}
-
-function populateMaterialSelector(mesh) {
-    const matSelect = document.getElementById('mat-select');
-    matSelect.innerHTML = '';
-
-    if (!mesh || !mesh.material) {
-        const opt = document.createElement('option');
-        opt.value = "0";
-        opt.textContent = "Geometriya / Material yo'q (Dummy)";
-        matSelect.appendChild(opt);
-        document.getElementById('tex-preview-box').style.display = 'none';
-        return;
-    }
-
-    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    mats.forEach((m, idx) => {
-        const opt = document.createElement('option');
-        opt.value = idx;
-        const dffMat = m.userData ? m.userData.dffMat : null;
-        const tex = dffMat && dffMat.textureName ? ` [${dffMat.textureName}]` : '';
-        opt.textContent = `Material ${idx + 1}${tex}`;
-        matSelect.appendChild(opt);
-    });
-
-    selectedMaterialIndex = 0;
-    updateMaterialControls();
-}
-
-function updateInspectorCoordinates(grp) {
-    document.getElementById('pos-x').value = grp.position.x.toFixed(3);
-    document.getElementById('pos-y').value = grp.position.y.toFixed(3);
-    document.getElementById('pos-z').value = grp.position.z.toFixed(3);
-
-    document.getElementById('rot-x').value = (grp.rotation.x * (180 / Math.PI)).toFixed(1);
-    document.getElementById('rot-y').value = (grp.rotation.y * (180 / Math.PI)).toFixed(1);
-    document.getElementById('rot-z').value = (grp.rotation.z * (180 / Math.PI)).toFixed(1);
-
-    document.getElementById('scale-x').value = grp.scale.x.toFixed(3);
-    document.getElementById('scale-y').value = grp.scale.y.toFixed(3);
-    document.getElementById('scale-z').value = grp.scale.z.toFixed(3);
-}
-
-// Move node order in hierarchy (Up / Down)
-function moveNodeOrder(index, direction) {
-    if (!currentDFF) return;
-    const targetIdx = index + direction;
-    if (targetIdx < 0 || targetIdx >= currentDFF.frames.length) return;
-
-    // Swap frames in currentDFF
-    const tempFrame = currentDFF.frames[index];
-    currentDFF.frames[index] = currentDFF.frames[targetIdx];
-    currentDFF.frames[targetIdx] = tempFrame;
-
-    currentDFF.frames[index].index = index;
-    currentDFF.frames[targetIdx].index = targetIdx;
-
-    // Swap groups in frameGroups
-    const tempGrp = frameGroups[index];
-    frameGroups[index] = frameGroups[targetIdx];
-    frameGroups[targetIdx] = tempGrp;
-
-    frameGroups[index].userData.frameIndex = index;
-    frameGroups[targetIdx].userData.frameIndex = targetIdx;
-
-    renderHierarchyList();
-    selectNodeByIndex(targetIdx);
-    showToast(`Tartib o'zgardi (${targetIdx + 1}/${currentDFF.frames.length})`);
-}
-
-// Reparent selected node to another frame
-function reparentSelectedNode() {
-    if (!selectedNode || !currentDFF) return;
-
-    const currentIdx = selectedNode.userData.frameIndex;
-    const currentName = selectedNode.name;
-
-    const frameListNames = currentDFF.frames
-        .map((f, i) => `${i}: ${f.name}`)
-        .filter((_, i) => i !== currentIdx)
-        .slice(0, 30)
-        .join("\n");
-
-    const input = prompt(`"${currentName}" detalini qaysi detal ichiga biriktirmoqchisiz?\nKatalog raqami yoki nomini kiriting:\n\n${frameListNames}`);
-    if (input === null) return;
-
-    let targetIdx = parseInt(input.trim());
-    if (isNaN(targetIdx)) {
-        targetIdx = currentDFF.frames.findIndex(f => f.name.toLowerCase() === input.trim().toLowerCase());
-    }
-
-    if (targetIdx < 0 || targetIdx >= currentDFF.frames.length || targetIdx === currentIdx) {
-        alert("Noto'g'ri detal tanlandi!");
-        return;
-    }
-
-    // Update parent in DFFModel
-    currentDFF.frames[currentIdx].parentIndex = targetIdx;
-
-    // Update Three.js hierarchy
-    frameGroups[targetIdx].add(selectedNode);
-
-    renderHierarchyList();
-    showToast(`"${currentName}" -> "${currentDFF.frames[targetIdx].name}" ga biriktirildi!`);
-}
-
-// Delete selected node
-function deleteSelectedNode() {
-    if (!selectedNode || !currentDFF) return;
-    const idx = selectedNode.userData.frameIndex;
-    const name = selectedNode.name;
-
-    if (!confirm(`Haqiqatan ham "${name}" detalini o'chirmoqchimisiz?`)) return;
-
-    transformControls.detach();
-    selectedNode.parent.remove(selectedNode);
-
-    // Remove from DFF
-    currentDFF.frames.splice(idx, 1);
-    frameGroups.splice(idx, 1);
-
-    // Re-index remaining frames
-    for (let i = 0; i < currentDFF.frames.length; i++) {
-        currentDFF.frames[i].index = i;
-        if (currentDFF.frames[i].parentIndex > idx) {
-            currentDFF.frames[i].parentIndex--;
-        } else if (currentDFF.frames[i].parentIndex === idx) {
-            currentDFF.frames[i].parentIndex = 0;
-        }
-        frameGroups[i].userData.frameIndex = i;
-    }
-
-    // Filter atomics pointing to this frame
-    currentDFF.atomics = currentDFF.atomics.filter(a => a.frameIndex !== idx);
-    for (let a of currentDFF.atomics) {
-        if (a.frameIndex > idx) a.frameIndex--;
-    }
-
-    selectedNode = null;
-    selectedMesh = null;
-    renderHierarchyList();
-    showToast(`O'chirildi: ${name}`);
-}
-
-// Render Hierarchy List inside Drawer with Drag & Drop
-function renderHierarchyList() {
-    const listContainer = document.getElementById('hierarchy-list');
-    listContainer.innerHTML = '';
-
-    frameGroups.forEach((grp, idx) => {
-        const item = document.createElement('div');
-        item.className = 'node-item';
-        item.dataset.index = idx;
-        item.dataset.name = grp.name;
-        item.draggable = true;
-
-        const info = document.createElement('div');
-        info.className = 'node-info';
-
-        const icon = document.createElement('span');
-        icon.className = 'node-icon';
-        const isDummy = !grp.children.some(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
-        icon.textContent = isDummy ? "📍" : "🚗";
-
-        const name = document.createElement('span');
-        name.className = 'node-name';
-        name.textContent = `${idx}: ${grp.name}`;
-
-        info.appendChild(icon);
-        info.appendChild(name);
-
-        const actions = document.createElement('div');
-        actions.style.display = 'flex';
-        actions.style.alignItems = 'center';
-        actions.style.gap = '2px';
-
-        // Rename pencil button
-        const editBtn = document.createElement('button');
-        editBtn.className = 'node-eye';
-        editBtn.innerHTML = "✏️";
-        editBtn.title = "Nomini o'zgartirish";
-        editBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const newName = prompt("Yangi nom kiriting:", grp.name);
-            if (newName && newName.trim() && newName.trim() !== grp.name) {
-                grp.name = newName.trim();
-                currentDFF.frames[idx].name = newName.trim();
-                renderHierarchyList();
-                if (selectedNode === grp) {
-                    document.getElementById('inspector-title').textContent = grp.name;
-                    document.getElementById('input-node-name').value = grp.name;
-                }
-                showToast(`Nom o'zgartirildi: ${grp.name}`);
-            }
-        });
-
-        // Visibility eye button
-        const eyeBtn = document.createElement('button');
-        eyeBtn.className = 'node-eye';
-        eyeBtn.innerHTML = "👁️";
-        eyeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            grp.visible = !grp.visible;
-            eyeBtn.style.opacity = grp.visible ? "1.0" : "0.3";
-        });
-
-        actions.appendChild(editBtn);
-        actions.appendChild(eyeBtn);
-
-        item.appendChild(info);
-        item.appendChild(actions);
-
-        // Selection
-        item.addEventListener('click', () => {
-            selectNodeByIndex(idx);
-        });
-
-        // Drag & Drop reorder
-        item.addEventListener('dragstart', (e) => {
-            e.dataTransfer.setData('text/plain', idx);
-            item.style.opacity = '0.5';
-        });
-
-        item.addEventListener('dragend', () => {
-            item.style.opacity = '1.0';
-            document.querySelectorAll('.node-item').forEach(i => i.style.borderTop = '');
-        });
-
-        item.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            item.style.borderTop = '2px solid #3b82f6';
-        });
-
-        item.addEventListener('dragleave', () => {
-            item.style.borderTop = '';
-        });
-
-        item.addEventListener('drop', (e) => {
-            e.preventDefault();
-            item.style.borderTop = '';
-            const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
-            const toIdx = idx;
-            if (fromIdx !== toIdx) {
-                // Reorder frames
-                const movedFrame = currentDFF.frames.splice(fromIdx, 1)[0];
-                currentDFF.frames.splice(toIdx, 0, movedFrame);
-
-                const movedGrp = frameGroups.splice(fromIdx, 1)[0];
-                frameGroups.splice(toIdx, 0, movedGrp);
-
-                // Update indices
-                currentDFF.frames.forEach((f, i) => f.index = i);
-                frameGroups.forEach((g, i) => g.userData.frameIndex = i);
-
-                renderHierarchyList();
-                selectNodeByIndex(toIdx);
-                showToast(`Qism yangi joyga ko'chirildi!`);
-            }
-        });
-
-        listContainer.appendChild(item);
-    });
-}
-
-function showAddDummyDialog() {
-    const dummyName = prompt("Yangi Dummy nomini kiriting (masalan: wheel_rf_dummy, headlight_l, exhaust):");
-    if (!dummyName || !dummyName.trim()) return;
-
-    if (!currentDFF) {
-        alert("Avval modelni oching!");
-        return;
-    }
-
-    const newIndex = currentDFF.frames.length;
-    let parentIndex = 0;
-    if (selectedNode && selectedNode.userData) {
-        parentIndex = selectedNode.userData.frameIndex;
-    }
-
-    const newFrame = {
-        index: newIndex,
-        name: dummyName.trim(),
-        rot: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-        pos: [0, 0, 0],
-        parentIndex: parentIndex,
-        matrixFlags: 0x00020003,
-        extensions: []
-    };
-
-    currentDFF.frames.push(newFrame);
-
-    const group = new THREE.Group();
-    group.name = newFrame.name;
-    group.userData = { frameIndex: newIndex, frameData: newFrame };
-    group.position.set(0, 0, 0);
-
-    const dummyGeo = new THREE.SphereGeometry(0.06, 12, 12);
-    const dummyMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
-    const dummyMesh = new THREE.Mesh(dummyGeo, dummyMat);
-    dummyMesh.name = "__dummy_helper__";
-    group.add(dummyMesh);
-    group.add(new THREE.AxesHelper(0.18));
-
-    frameGroups.push(group);
-    if (frameGroups[parentIndex]) {
-        frameGroups[parentIndex].add(group);
-    } else {
-        currentRootGroup.add(group);
-    }
-
-    renderHierarchyList();
-    selectNodeByIndex(newIndex);
-    showToast(`Yangi dummy qo'shildi: ${newFrame.name}`);
-}
-
-// Toast helper
 function showToast(msg) {
     const toast = document.getElementById('toast');
+    if (!toast) return;
     toast.textContent = msg;
     toast.classList.add('show');
-    setTimeout(() => {
-        toast.classList.remove('show');
-    }, 2500);
+    setTimeout(() => toast.classList.remove('show'), 2500);
 }
 
-// Global hooks for Native iOS Bridge
+// Native iOS Bridge hook
 window.onNativeFileOpened = function(base64Data, fileName, mode) {
     try {
         const binary = window.atob(base64Data);
         const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
         const lowerName = fileName.toLowerCase();
-
         if (mode === "txd" || lowerName.endsWith(".txd")) {
             processTXDData(bytes.buffer, fileName);
         } else if (/\.(png|jpe?g)$/i.test(lowerName)) {
             const blob = new Blob([bytes], { type: lowerName.endsWith(".png") ? "image/png" : "image/jpeg" });
-            const file = new File([blob], fileName);
-            processImageFile(file);
+            processImageFile(new File([blob], fileName));
         } else if (mode === "merge") {
             mergeExternalDFF(bytes.buffer, fileName);
         } else {

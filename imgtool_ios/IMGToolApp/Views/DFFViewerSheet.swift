@@ -107,7 +107,7 @@ struct DFFViewerSheet: View {
                 }) {
                     Text("Yopish")
                         .foregroundColor(.blue)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 16, weight: .semibold))
                 },
                 trailing: Button(action: {
                     exportFile()

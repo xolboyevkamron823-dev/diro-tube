@@ -1719,7 +1719,17 @@ function setupUIEvents() {
         }
     });
 
-    document.getElementById('btn-open-file').addEventListener('click', () => fileInput.click());
+    const triggerFilePicker = (mode) => {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openDocumentPicker) {
+            window.webkit.messageHandlers.openDocumentPicker.postMessage({ mode: mode });
+        } else {
+            if (mode === "txd") txdInput.click();
+            else if (mode === "merge") mergeInput.click();
+            else fileInput.click();
+        }
+    };
+
+    document.getElementById('btn-open-file').addEventListener('click', () => triggerFilePicker("open"));
 
     const txdInput = document.getElementById('txd-file-input');
     txdInput.addEventListener('change', (e) => {
@@ -1734,7 +1744,7 @@ function setupUIEvents() {
             }
         });
     });
-    document.getElementById('btn-open-txd').addEventListener('click', () => txdInput.click());
+    document.getElementById('btn-open-txd').addEventListener('click', () => triggerFilePicker("txd"));
 
     // Merge DFF
     const mergeInput = document.getElementById('dff-merge-input');
@@ -1745,8 +1755,8 @@ function setupUIEvents() {
         reader.onload = (event) => mergeExternalDFF(event.target.result, file.name);
         reader.readAsArrayBuffer(file);
     });
-    document.getElementById('btn-merge-file').addEventListener('click', () => mergeInput.click());
-    document.getElementById('btn-hier-add-dff').addEventListener('click', () => mergeInput.click());
+    document.getElementById('btn-merge-file').addEventListener('click', () => triggerFilePicker("merge"));
+    document.getElementById('btn-hier-add-dff').addEventListener('click', () => triggerFilePicker("merge"));
 
     // Export DFF
     document.getElementById('btn-export-dff').addEventListener('click', exportCurrentDFF);

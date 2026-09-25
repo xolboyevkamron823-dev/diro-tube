@@ -377,7 +377,7 @@ public class IMGArchive: ObservableObject {
         
         // Rewrite directory table
         var dirData = Data(capacity: updatedEntries.count * 32)
-        for (newIdx, ent) in updatedEntries.enumerated() {
+        for ent in updatedEntries {
             var offLE = ent.offset.littleEndian
             var secLE = ent.streamingSize.littleEndian
             var zero16: UInt16 = 0
@@ -444,7 +444,6 @@ public class IMGArchive: ObservableObject {
                 // 2. Calculate data start sector
                 let dirBytes = 8 + UInt64(count) * 32
                 let dataStartSector = (dirBytes + (self.sectorSize - 1)) / self.sectorSize
-                let paddingNeeded = Int(dataStartSector * self.sectorSize - dirBytes)
                 
                 // Write placeholder for directory table + padding
                 let placeholderDir = Data(repeating: 0, count: Int(dataStartSector * self.sectorSize - 8))

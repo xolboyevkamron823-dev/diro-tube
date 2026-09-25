@@ -17,4 +17,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         win.makeKeyAndVisible()
         return true
     }
+
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+        if let vc = window?.rootViewController as? ViewController {
+            vc.handleIncomingURL(url)
+            return true
+        }
+        return false
+    }
 }

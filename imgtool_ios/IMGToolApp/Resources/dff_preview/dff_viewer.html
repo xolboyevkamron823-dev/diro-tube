@@ -367,9 +367,23 @@
           threeMaterials.push(defMat);
         }
 
+        const frameName = (targetGroup.name || "").toLowerCase();
+        const isHidden = frameName.includes("_vlo") || 
+                         frameName.includes("_dam") || 
+                         frameName.includes("col") || 
+                         frameName.includes("dummy") || 
+                         frameName.includes("shadow");
+
         const mesh = new THREE.Mesh(bufferGeom, threeMaterials.length === 1 ? threeMaterials[0] : threeMaterials);
+        mesh.name = targetGroup.name || "part";
+        if (isHidden) {
+          mesh.visible = false;
+        }
         targetGroup.add(mesh);
       }
+
+      // Convert GTA SA Z-Up to Three.js Y-Up (Fix upside-down / standing on nose)
+      rootGroup.rotation.x = -Math.PI / 2;
 
       return rootGroup;
     }
@@ -398,12 +412,13 @@
           dff.parse(bytes.buffer);
 
           currentModelGroup = buildThreeGroupFromDFF(dff);
+          currentModelGroup.updateMatrixWorld(true);
 
-          // Compute realistic bounding box excluding far dummies
+          // Compute realistic bounding box using ONLY visible car meshes (ignoring hidden _vlo, col)
           let meshesBox = new THREE.Box3();
           let hasMeshes = false;
           currentModelGroup.traverse(child => {
-            if (child.isMesh && child.geometry) {
+            if (child.isMesh && child.visible && child.geometry) {
               child.geometry.computeBoundingBox();
               const worldBox = child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld);
               if (!hasMeshes) {
@@ -423,28 +438,29 @@
           const size = meshesBox.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z) || 1.0;
 
-          // Center model on origin
-          currentModelGroup.position.sub(center);
-          // Put on ground
-          currentModelGroup.position.y += size.y / 2;
+          // Center horizontally (X & Z)
+          currentModelGroup.position.x -= center.x;
+          currentModelGroup.position.z -= center.z;
+          // Place wheels right on ground level (Y = 0)
+          currentModelGroup.position.y -= meshesBox.min.y;
 
           scene.add(currentModelGroup);
 
           // Update camera
-          defaultCamDistance = maxDim * 1.8;
-          camera.position.set(defaultCamDistance * 0.8, defaultCamDistance * 0.6, defaultCamDistance);
+          defaultCamDistance = maxDim * 2.0;
+          camera.position.set(defaultCamDistance * 0.9, defaultCamDistance * 0.6, defaultCamDistance);
           camera.near = maxDim * 0.01;
-          camera.far = maxDim * 30;
+          camera.far = maxDim * 40;
           camera.updateProjectionMatrix();
 
           controls.target.set(0, size.y / 2, 0);
           controls.update();
 
-          // Count stats
+          // Count stats of visible meshes
           let totalVerts = 0;
           let totalFaces = 0;
           currentModelGroup.traverse(child => {
-            if (child.isMesh && child.geometry) {
+            if (child.isMesh && child.visible && child.geometry) {
               if (child.geometry.attributes && child.geometry.attributes.position) {
                 totalVerts += child.geometry.attributes.position.count;
               }

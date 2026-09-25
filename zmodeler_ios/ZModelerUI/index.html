@@ -16,15 +16,15 @@
 <body>
 
     <!-- Immediate Launch Indicator -->
-    <div id="app-loading-state" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f1117; color: white; z-index: 99999; pointer-events: none; transition: opacity 0.3s ease;">
-        <img src="logo.png" style="width: 72px; height: 72px; border-radius: 16px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-        <div style="font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">DIRO 3D STUDIO</div>
-        <div style="font-size: 13px; color: #94a3b8; margin-top: 6px;">ZModeler 2 iOS • Yuklanmoqda...</div>
+    <div id="app-loading-state" style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0e1117; color: white; z-index: 99999; pointer-events: none; transition: opacity 0.3s ease;">
+        <img src="logo.png" style="width: 64px; height: 64px; border-radius: 14px; margin-bottom: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+        <div style="font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">DIRO 3D STUDIO</div>
+        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">ZModeler 2 iOS • Yuklanmoqda...</div>
     </div>
 
     <!-- 3D Viewport Container -->
     <div id="viewport-container">
-        <!-- 4-Viewport CAD Layout Overlays -->
+        <!-- 4-Viewport CAD Layout Overlays (Only visible when 4-Oyna / Quad mode is active) -->
         <div id="quad-container" class="hidden">
             <div class="quad-crosshair" id="quad-line-h"></div>
             <div class="quad-crosshair" id="quad-line-v"></div>
@@ -32,33 +32,39 @@
             <!-- Viewport 0: Top -->
             <div class="viewport-overlay vp-top-left" id="vp-overlay-0">
                 <span class="vp-badge">TOP</span>
-                <span style="font-size: 10px; color: #94a3b8;">Ortografik</span>
-                <button class="vp-btn" data-vp="0" title="Kattalashtirish (Space)">⛶</button>
+                <span style="font-size: 10px; color: #94a3b8;">Tepadan</span>
+                <button class="vp-btn" data-vp="0" title="To'liq ekranga ochish">⛶</button>
             </div>
 
             <!-- Viewport 1: Front -->
             <div class="viewport-overlay vp-top-right" id="vp-overlay-1">
                 <span class="vp-badge" style="background: #10b981;">FRONT</span>
-                <span style="font-size: 10px; color: #94a3b8;">Ortografik</span>
-                <button class="vp-btn" data-vp="1" title="Kattalashtirish (Space)">⛶</button>
+                <span style="font-size: 10px; color: #94a3b8;">Oldindan</span>
+                <button class="vp-btn" data-vp="1" title="To'liq ekranga ochish">⛶</button>
             </div>
 
             <!-- Viewport 2: Left -->
             <div class="viewport-overlay vp-bottom-left" id="vp-overlay-2">
                 <span class="vp-badge" style="background: #f59e0b;">LEFT</span>
-                <span style="font-size: 10px; color: #94a3b8;">Ortografik</span>
-                <button class="vp-btn" data-vp="2" title="Kattalashtirish (Space)">⛶</button>
+                <span style="font-size: 10px; color: #94a3b8;">Chapdan</span>
+                <button class="vp-btn" data-vp="2" title="To'liq ekranga ochish">⛶</button>
             </div>
 
             <!-- Viewport 3: 3D User -->
             <div class="viewport-overlay vp-bottom-right" id="vp-overlay-3">
                 <span class="vp-badge" style="background: #8b5cf6;">3D USER</span>
-                <span style="font-size: 10px; color: #94a3b8;">Perspektiv</span>
-                <button class="vp-btn" data-vp="3" title="Kattalashtirish (Space)">⛶</button>
+                <span style="font-size: 10px; color: #94a3b8;">Erkin 3D</span>
+                <button class="vp-btn" data-vp="3" title="To'liq ekranga ochish">⛶</button>
             </div>
 
             <div id="active-vp-border" class="active-viewport-border"></div>
         </div>
+    </div>
+
+    <!-- Single Viewport Mode Status Badge -->
+    <div id="vp-single-indicator" class="vp-single-badge">
+        <span id="lbl-active-view-name">🚗 3D USER</span>
+        <button id="btn-quick-switch-quad" title="4-Oynali CAD rejimiga o'tish" class="vp-btn-switch">⊞ 4-Oyna</button>
     </div>
 
     <!-- Hidden native file inputs (Allow any file so iOS does not grey out .dff and .txd) -->
@@ -68,91 +74,50 @@
     <input type="file" id="tex-file-input" accept="image/*,*/*" style="display: none;">
     <input type="file" id="mat-editor-tex-input" accept="image/*,*/*" style="display: none;">
 
-    <!-- Top Primary Menu Bar -->
+    <!-- Single Sleek Top Navigation Bar -->
     <header class="top-nav">
-        <div class="brand">
-            <img src="logo.png" alt="Diro Logo" style="width: 28px; height: 28px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">
-            <span class="brand-badge">ZM2</span>
-            <span style="font-size: 14px; font-weight: 700;">ZModeler</span>
+        <!-- Left: Logo & File Menu -->
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="brand">
+                <img src="logo.png" alt="Diro Logo" style="width: 26px; height: 26px; border-radius: 6px;">
+                <span class="brand-badge">ZM2</span>
+            </div>
+
+            <!-- File Dropdown -->
+            <div style="position: relative;">
+                <button class="btn btn-secondary" id="btn-menu-file" style="height: 32px; padding: 0 10px; font-size: 12px;">📂 Fayl ▾</button>
+                <div class="dropdown-menu hidden" id="menu-file">
+                    <button class="menu-item" id="btn-open-file">📂 DFF Modelni Ochish</button>
+                    <button class="menu-item" id="btn-open-txd">🖼️ TXD Tekstura Ochish</button>
+                    <button class="menu-item" id="btn-merge-file">➕ Detal Qo'shish (Merge)</button>
+                    <div class="menu-divider"></div>
+                    <button class="menu-item" id="btn-export-dff" style="color: var(--accent-green);">💾 Modelni Saqlash (DFF)</button>
+                </div>
+            </div>
+
+            <button class="btn btn-success" id="btn-quick-export" style="height: 32px; padding: 0 10px; font-size: 12px;" title="DFF Faylni Saqlash">💾 Saqlash</button>
         </div>
-        <div class="nav-actions">
-            <button class="btn btn-secondary" id="btn-open-file" title="Yangi DFF model ochish">📂 Ochish</button>
-            <button class="btn btn-secondary" id="btn-open-txd" title="TXD yoki tekstura rasmlarini ochish">🖼️ TXD</button>
-            <button class="btn btn-secondary" id="btn-merge-file" title="Boshqa DFF detalini qo'shish">➕ Detal</button>
-            <button class="btn btn-success" id="btn-export-dff" title="O'zgartirilgan modelni DFF qilib saqlash">💾 Saqlash</button>
+
+        <!-- Center: Edit Levels (1: Nuqta, 2: Qirra, 3: Poligon, 4: Detal) -->
+        <div class="levels-group">
+            <button class="level-btn" id="btn-level-1" data-level="1" title="Vertex Nuqta rejimi">1: Nuqta</button>
+            <button class="level-btn" id="btn-level-2" data-level="2" title="Edge Qirra rejimi">2: Qirra</button>
+            <button class="level-btn" id="btn-level-3" data-level="3" title="Polygon Yuzalar rejimi (Qizil)">3: Poligon</button>
+            <button class="level-btn active" id="btn-level-4" data-level="4" title="Object Detal rejimi">4: Detal</button>
+        </div>
+
+        <!-- Right: Tools & Drawers -->
+        <div style="display: flex; align-items: center; gap: 6px;">
             <button class="btn btn-secondary btn-icon" id="btn-toggle-quad-mode" title="4-Oyna / 1-Oyna ko'rinishi">⊞</button>
             <button class="btn btn-secondary btn-icon" id="btn-open-mat-editor" title="Material Editor (E)">🎨</button>
-            <button class="btn btn-secondary btn-icon" id="btn-open-uv-mapper" title="2D UV Tahrirlash">🗺️</button>
-            <button class="btn btn-secondary btn-icon" id="btn-toggle-hierarchy" title="Mashina qismlari">📋</button>
-            <button class="btn btn-secondary btn-icon" id="btn-toggle-inspector" title="Sozlamalar va Tyuning">⚙️</button>
+            <button class="btn btn-secondary btn-icon" id="btn-open-uv-mapper" title="2D UV Mapper">🗺️</button>
+            <button class="btn btn-secondary btn-icon" id="btn-toggle-hierarchy" title="Mashina qismlari (Outliner)">📋</button>
+            <button class="btn btn-secondary btn-icon" id="btn-toggle-inspector" title="Koordinata & Tyuning">⚙️</button>
         </div>
     </header>
 
-    <!-- Secondary Sub-Nav Bar: Edit Levels & ZModeler 2 Command Menus -->
-    <div class="sub-nav">
-        <!-- Edit Levels: 1: Vert, 2: Edge, 3: Poly, 4: Obj -->
-        <div class="levels-group">
-            <button class="level-btn" id="btn-level-1" data-level="1" title="Vertex Mode (Nuqtalar darajasi)">1: Nuqta</button>
-            <button class="level-btn" id="btn-level-2" data-level="2" title="Edge Mode (Qirralar darajasi)">2: Qirra</button>
-            <button class="level-btn" id="btn-level-3" data-level="3" title="Polygon Mode (Poligonlar darajasi - Qizil rang)">3: Poligon</button>
-            <button class="level-btn active" id="btn-level-4" data-level="4" title="Object Mode (Butun detal darajasi)">4: Detal</button>
-        </div>
-
-        <!-- Selection Tools -->
-        <div class="select-group">
-            <button class="mini-btn active" id="btn-sel-single" title="Bittalab tanlash">Yakka</button>
-            <button class="mini-btn" id="btn-sel-all" title="Hammasini tanlash">Barchasi</button>
-            <button class="mini-btn" id="btn-sel-none" title="Tanlovni bekor qilish">Bekor</button>
-            <button class="mini-btn" id="btn-sel-invert" title="Teskarisiga tanlash">Invert</button>
-        </div>
-
-        <!-- ZModeler 2 Command Menus -->
-        <div style="display: flex; gap: 4px; position: relative;">
-            <button class="menu-btn" id="btn-menu-modify">Modify ▾</button>
-            <button class="menu-btn" id="btn-menu-surface">Surface ▾</button>
-            <button class="menu-btn" id="btn-menu-vertices">Vertex ▾</button>
-            <button class="menu-btn" id="btn-menu-polygons">Polygons ▾</button>
-
-            <!-- Dropdown: Modify -->
-            <div class="dropdown-menu hidden" id="menu-modify">
-                <button class="menu-item" data-action="gizmo-translate">↔️ Surish (Move)</button>
-                <button class="menu-item" data-action="gizmo-rotate">🔄 Burish (Rotate)</button>
-                <button class="menu-item" data-action="gizmo-scale">🔍 Masshtab (Scale)</button>
-                <div class="menu-divider"></div>
-                <button class="menu-item" data-action="mirror-x">🪞 Mirror X (Chap-O'ng)</button>
-                <button class="menu-item" data-action="mirror-y">🪞 Mirror Y (Old-Orqa)</button>
-                <button class="menu-item" data-action="mirror-z">🪞 Mirror Z (Tepa-Past)</button>
-                <div class="menu-divider"></div>
-                <button class="menu-item" data-action="reorient-pivot">🎯 Pivotni Markazga qo'yish</button>
-            </div>
-
-            <!-- Dropdown: Surface -->
-            <div class="dropdown-menu hidden" id="menu-surface">
-                <button class="menu-item" data-action="calc-normals">✨ Normallarni Hisoblash</button>
-                <button class="menu-item" data-action="flip-normals">🔄 Normallarni Invert qilish</button>
-                <div class="menu-divider"></div>
-                <button class="menu-item" data-action="open-uv-mapper">🗺️ Mapping -> Edit UV</button>
-            </div>
-
-            <!-- Dropdown: Vertices -->
-            <div class="dropdown-menu hidden" id="menu-vertices">
-                <button class="menu-item" data-action="weld-vertices">🔗 Weld / Fuse (Birlashtirish)...</button>
-                <button class="menu-item" data-action="delete-vertices" style="color: var(--accent-red);">🗑️ Nuqtalarni O'chirish</button>
-            </div>
-
-            <!-- Dropdown: Polygons -->
-            <div class="dropdown-menu hidden" id="menu-polygons">
-                <button class="menu-item" data-action="detach-polygons">⚡ Ajratib olish (Detach to New Part)</button>
-                <button class="menu-item" data-action="flip-polygons">🔄 Poligonni O'girish (Flip)</button>
-                <button class="menu-item" data-action="assign-material">🎨 Material Biriktirish</button>
-                <div class="menu-divider"></div>
-                <button class="menu-item" data-action="delete-polygons" style="color: var(--accent-red);">🗑️ Poligonlarni O'chirish</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Viewport Floating Left Toolbar -->
-    <div class="view-toolbar" style="top: calc(env(safe-area-inset-top, 10px) + 110px);">
+    <div class="view-toolbar">
         <button class="tool-btn" id="btn-toggle-wireframe" title="To'rli rejim (Wireframe)">🕸️</button>
         <button class="tool-btn active" id="btn-toggle-dummies" title="Dummylarni ko'rsatish/yashirish">📍</button>
         <button class="tool-btn" id="btn-toggle-shader" title="✨ Shader (GTA SA Yaltiroq Carpaint)">✨</button>
@@ -175,18 +140,21 @@
         <button class="act-btn" id="btn-act-assign-mat">🎨 Material</button>
         <button class="act-btn" id="btn-act-weld">🔗 Weld</button>
         <button class="act-btn act-btn-danger" id="btn-act-delete" style="color: var(--accent-red);">🗑️ O'chirish</button>
+        <button class="act-btn" id="btn-act-clear" title="Tanlovni bekor qilish">✕</button>
     </div>
+
+    <!-- Dim Backdrop for Drawers (Tapping outside automatically closes drawer!) -->
+    <div id="drawer-backdrop" class="drawer-backdrop"></div>
 
     <!-- Left Drawer: Hierarchy (Mashina Qismlari & Tartibi) -->
     <div class="drawer drawer-left collapsed" id="drawer-hierarchy">
         <div class="drawer-header">
             <div class="drawer-title">📋 Mashina Qismlari</div>
-            <button class="drawer-close" id="btn-close-hierarchy">✕</button>
+            <button class="drawer-close" id="btn-close-hierarchy" title="Yopish">✕</button>
         </div>
         <div class="drawer-body">
             <input type="text" class="search-box" id="hierarchy-search" placeholder="Qismni qidirish (wheel, light, door...)">
             
-            <!-- Hierarchy Actions Toolbar -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                 <button class="btn btn-secondary" style="font-size: 11px; height: 32px;" id="btn-hier-add-dff">➕ DFF Qo'shish</button>
                 <button class="btn btn-secondary" style="font-size: 11px; height: 32px;" id="btn-add-dummy">📍 Dummy qo'shish</button>
@@ -199,7 +167,6 @@
                 <button class="btn btn-secondary" style="font-size: 11px; height: 28px; color: var(--accent-red);" id="btn-delete-node" title="Tanlangan qismni o'chirish">🗑️</button>
             </div>
 
-            <!-- Drag & Drop Node List -->
             <div class="node-list" id="hierarchy-list">
                 <!-- Populated dynamically -->
             </div>
@@ -210,22 +177,20 @@
     <div class="drawer drawer-right collapsed" id="drawer-inspector">
         <div class="drawer-header">
             <div class="drawer-title" id="inspector-title">⚙️ Xususiyatlar</div>
-            <button class="drawer-close" id="btn-close-inspector">✕</button>
+            <button class="drawer-close" id="btn-close-inspector" title="Yopish">✕</button>
         </div>
         <div class="drawer-body">
             <!-- Tabs -->
             <div class="tab-row">
                 <button class="tab-btn active" data-tab="coords">Koordinata</button>
                 <button class="tab-btn" data-tab="tuning">🚀 Tyuning</button>
-                <button class="tab-btn" data-tab="materials">🎨 Material</button>
+                <button class="tab-btn" data-tab="modify">🛠️ Modify</button>
             </div>
 
             <!-- Tab 1: Coordinates & Rename -->
-            <div id="tab-coords" class="tab-content" style="display: flex; flex-direction: column; gap: 12px;">
+            <div id="tab-coords" class="tab-content" style="display: flex; flex-direction: column; gap: 10px;">
                 <div class="card">
-                    <div class="card-title">
-                        <span>Qism nomi (Rename)</span>
-                    </div>
+                    <div class="card-title">Qism nomi (Rename)</div>
                     <div style="display: flex; gap: 6px;">
                         <input type="text" class="search-box" id="input-node-name" style="height: 34px; flex: 1;" placeholder="chassis, wheel_rf...">
                         <button class="btn btn-primary" id="btn-apply-rename" style="height: 34px; padding: 0 10px; font-size: 12px;">Saqlash</button>
@@ -300,7 +265,7 @@
             </div>
 
             <!-- Tab 2: Quick Stance Tuning -->
-            <div id="tab-tuning" class="tab-content" style="display: none; flex-direction: column; gap: 14px;">
+            <div id="tab-tuning" class="tab-content" style="display: none; flex-direction: column; gap: 12px;">
                 <div class="card">
                     <div class="card-title">🚗 Posadka (Pasaytirish / Ko'tarish)</div>
                     <div class="slider-group">
@@ -309,7 +274,6 @@
                             <span class="slider-val" id="val-posadka">0 sm</span>
                         </div>
                         <input type="range" id="slider-posadka" min="-30" max="30" value="0" step="1">
-                        <span style="font-size: 11px; color: var(--text-muted);">G'ildirak dummylari avtomatik hisoblanadi</span>
                     </div>
                 </div>
 
@@ -347,10 +311,22 @@
                 </div>
             </div>
 
-            <!-- Tab 3: Material Quick Tab -->
-            <div id="tab-materials" class="tab-content" style="display: none; flex-direction: column; gap: 12px;">
+            <!-- Tab 3: ZModeler Modify Tools -->
+            <div id="tab-modify" class="tab-content" style="display: none; flex-direction: column; gap: 8px;">
                 <div class="card">
-                    <button class="btn btn-primary" style="width: 100%;" onclick="openMaterialEditorModal()">🎨 To'liq Material Editorini Ochish (E)</button>
+                    <div class="card-title">🪞 Oynali Nusxalash (Mirror)</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+                        <button class="btn btn-secondary" onclick="handleMenuAction('mirror-x')">X (Chap/O'ng)</button>
+                        <button class="btn btn-secondary" onclick="handleMenuAction('mirror-y')">Y (Old/Orqa)</button>
+                        <button class="btn btn-secondary" onclick="handleMenuAction('mirror-z')">Z (Tepa/Past)</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🎯 Pivot & Normallar</div>
+                    <button class="btn btn-secondary" style="width: 100%; margin-bottom: 6px;" onclick="handleMenuAction('reorient-pivot')">🎯 Pivotni Detal Markaziga qo'yish</button>
+                    <button class="btn btn-secondary" style="width: 100%; margin-bottom: 6px;" onclick="handleMenuAction('calc-normals')">✨ Normallarni Silliq Hisoblash</button>
+                    <button class="btn btn-secondary" style="width: 100%;" onclick="handleMenuAction('flip-normals')">🔄 Normallarni Invert Qilish</button>
                 </div>
             </div>
         </div>
@@ -372,11 +348,6 @@
                     <div style="display: flex; flex-direction: column; gap: 8px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span style="font-size: 12px; font-weight: 700; color: #94a3b8;">MATERIAL RO'YXATI</span>
-                            <div style="display: flex; gap: 4px;">
-                                <button class="mini-btn" id="btn-mat-new" title="Yangi material qo'shish">➕</button>
-                                <button class="mini-btn" id="btn-mat-clone" title="Nusxalash">📋</button>
-                                <button class="mini-btn" id="btn-mat-delete" style="color: var(--accent-red);" title="O'chirish">🗑️</button>
-                            </div>
                         </div>
                         <div class="mat-list" id="mat-modal-list">
                             <!-- Populated dynamically -->
@@ -385,7 +356,6 @@
 
                     <!-- Right: Material Properties & Shaders -->
                     <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <!-- Name & Shader Preset -->
                         <div class="card">
                             <div class="card-title">Material Nomi & GTA SA Shader Rejimi</div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
@@ -445,14 +415,14 @@
                             <div class="card-title">Yorug'lik Xususiyatlari</div>
                             <div class="slider-group">
                                 <div class="slider-header">
-                                    <span>Ambient (Atrof yorug'ligi):</span>
+                                    <span>Ambient:</span>
                                     <span class="slider-val" id="val-modal-ambient">1.00</span>
                                 </div>
                                 <input type="range" id="slider-modal-ambient" min="0" max="2" value="1.0" step="0.05">
                             </div>
                             <div class="slider-group">
                                 <div class="slider-header">
-                                    <span>Specular (Yaltirash o'tkirligi):</span>
+                                    <span>Specular (Yaltirash):</span>
                                     <span class="slider-val" id="val-modal-specular">1.00</span>
                                 </div>
                                 <input type="range" id="slider-modal-specular" min="0" max="2" value="1.0" step="0.05">
@@ -461,8 +431,8 @@
 
                         <!-- Assignment Buttons -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                            <button class="btn btn-primary" id="btn-mat-assign-selected-poly">⚡ Tanlangan Poligonlarga Biriktirish</button>
-                            <button class="btn btn-secondary" id="btn-mat-assign-object">📦 Butun Detalga Biriktirish</button>
+                            <button class="btn btn-primary" id="btn-mat-assign-selected-poly">⚡ Tanlangan Poligonlarga</button>
+                            <button class="btn btn-secondary" id="btn-mat-assign-object">📦 Butun Detalga</button>
                         </div>
                     </div>
                 </div>
@@ -482,25 +452,21 @@
             </div>
             <div class="zmodal-body">
                 <div class="uv-layout">
-                    <!-- UV Toolbar -->
                     <div class="uv-toolbar">
-                        <button class="mini-btn" id="btn-uv-move-mode" title="UV ni surish">↔️ Surish</button>
-                        <button class="mini-btn" id="btn-uv-scale-up" title="Kattalashtirish">🔍 +</button>
-                        <button class="mini-btn" id="btn-uv-scale-down" title="Kichraytirish">🔍 -</button>
-                        <button class="mini-btn" id="btn-uv-rot-90" title="90 gradus burish">🔄 90°</button>
-                        <button class="mini-btn" id="btn-uv-flip-h" title="Gorizontal teskari">↔️ Flip H</button>
-                        <button class="mini-btn" id="btn-uv-flip-v" title="Vertikal teskari (180°)">↕️ Flip V</button>
-                        <button class="mini-btn" id="btn-uv-fit" title="Katakka moslash (0..1)">🔲 Fit (0..1)</button>
-                        <button class="mini-btn" id="btn-uv-reset" title="Boshlang'ich holat">↩️ Asliga</button>
+                        <button class="mini-btn" id="btn-uv-scale-up">🔍 +</button>
+                        <button class="mini-btn" id="btn-uv-scale-down">🔍 -</button>
+                        <button class="mini-btn" id="btn-uv-rot-90">🔄 90°</button>
+                        <button class="mini-btn" id="btn-uv-flip-h">↔️ Flip H</button>
+                        <button class="mini-btn" id="btn-uv-flip-v">↕️ Flip V</button>
+                        <button class="mini-btn" id="btn-uv-fit">🔲 Fit (0..1)</button>
+                        <button class="mini-btn" id="btn-uv-reset">↩️ Asliga</button>
                     </div>
 
-                    <!-- UV Canvas Container -->
                     <div class="uv-canvas-wrap">
-                        <canvas id="uv-canvas" width="600" height="420"></canvas>
+                        <canvas id="uv-canvas" width="600" height="400"></canvas>
                     </div>
 
                     <div style="font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;">
-                        <span>U, V: <strong id="lbl-uv-coords" style="color: #38bdf8;">[0.000, 0.000]</strong></span>
                         <span>Tanlangan poligonlar soni: <strong id="lbl-uv-poly-count" style="color: #ef4444;">0</strong></span>
                     </div>
                 </div>
@@ -510,25 +476,25 @@
 
     <!-- Weld Threshold Dialog -->
     <div class="zmodal-overlay hidden" id="modal-weld-threshold">
-        <div class="zmodal" style="max-width: 420px;">
+        <div class="zmodal" style="max-width: 380px;">
             <div class="zmodal-header">
                 <div class="zmodal-title">🔗 Weld / Fuse Vertices</div>
                 <button class="zmodal-close" id="btn-close-weld-modal">✕</button>
             </div>
             <div class="zmodal-body" style="flex-direction: column; gap: 14px;">
-                <div style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
-                    Belgilangan masofadan yaqin turgan nuqtalar (vertexlar) bitta nuqtaga birlashtiriladi.
+                <div style="font-size: 12px; color: #cbd5e1; line-height: 1.5;">
+                    Belgilangan masofadan yaqin turgan nuqtalar birlashtiriladi:
                 </div>
                 <div class="card">
                     <div class="slider-group">
                         <div class="slider-header">
-                            <span>Oraliq masofa (Threshold):</span>
+                            <span>Oraliq masofa:</span>
                             <span class="slider-val" id="val-weld-threshold">0.005 m (5mm)</span>
                         </div>
                         <input type="range" id="slider-weld-threshold" min="0.001" max="0.05" value="0.005" step="0.001">
                     </div>
                 </div>
-                <button class="btn btn-primary" id="btn-confirm-weld" style="width: 100%; height: 40px;">Birlashtirish (Weld)</button>
+                <button class="btn btn-primary" id="btn-confirm-weld" style="width: 100%; height: 38px;">Birlashtirish (Weld)</button>
             </div>
         </div>
     </div>
@@ -536,17 +502,15 @@
     <!-- Welcome Overlay -->
     <div class="welcome-overlay" id="welcome-overlay">
         <div class="welcome-card">
-            <img src="logo.png" alt="Diro Logo" style="width: 80px; height: 80px; border-radius: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+            <img src="logo.png" alt="Diro Logo" style="width: 72px; height: 72px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
             <div class="welcome-title">Diro 3D Studio</div>
             <div class="welcome-desc">
                 iOS uchun ZModeler 2 (1:1 PC) dasturi.<br>
-                GTA San Andreas <code>.dff</code> modellarini oching, poligonlar va nuqtalarni tahrirlang, GTA SA shaderlarini sozlang, UV map qiling va saqlang!
+                GTA San Andreas <code>.dff</code> modellarini oching, poligonlar va nuqtalarni tahrirlang, shader va teksturalarni sozlang!
             </div>
-            <div style="display: flex; flex-direction: column; width: 100%; gap: 10px;">
-                <button class="btn btn-primary" style="width: 100%; height: 44px; font-size: 15px;" onclick="document.getElementById('btn-open-file').click();">
-                    📂 DFF Modelni Ochish
-                </button>
-            </div>
+            <button class="btn btn-primary" id="btn-welcome-open-dff" style="width: 100%; height: 42px; font-size: 15px;" onclick="window.triggerFilePicker('open');">
+                📂 DFF Modelni Ochish
+            </button>
         </div>
     </div>
 

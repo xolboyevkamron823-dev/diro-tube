@@ -294,10 +294,6 @@ static void camera_restore(void) {
     if (fn) {
         fn(cam);
     }
-    *(int32_t *)(cam + 0xb4) = 0;
-    *(uint16_t *)(cam + 0x31) = 0;
-    *(uint8_t *)(cam + 0x36) = 1;
-    *(uint8_t *)(cam + 0x38) = 0;
 }
 
 static UIView *get_game_view(void) {
@@ -341,7 +337,6 @@ static void set_game_hud_visible(BOOL visible) {
 
     // 1. Native CHud draw flags
     *(uint8_t *)(base + 0x4e333c) = visible ? 1 : 0;
-    *(uint32_t *)(base + 0x73bfe0) = visible ? 1 : 0;
 
     // 2. TheCamera widescreen/cutscene mode (0 hides native radar, health bar, money, weapon icon)
     uintptr_t cam = get_the_camera();
@@ -371,20 +366,6 @@ static void set_game_hud_visible(BOOL visible) {
             cur = *(uintptr_t *)(cur + 0xd0);
         }
     }
-
-    // 5. Hide any native subviews on game view
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIView *gv = get_game_view();
-        if (gv) {
-            gv.transform = CGAffineTransformIdentity;
-            for (UIView *sub in gv.subviews) {
-                if (sub != g_diroWindow && ![sub isKindOfClass:NSClassFromString(@"DiroWindow")] &&
-                    ![sub isKindOfClass:NSClassFromString(@"EAGLView")]) {
-                    sub.hidden = !visible;
-                }
-            }
-        }
-    });
 }
 
 static void set_game_frozen(BOOL freeze) {

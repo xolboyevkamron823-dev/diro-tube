@@ -107,7 +107,7 @@ struct ContentView: View {
                     
                     // Entries Count Label
                     HStack {
-                        Text("\(filteredEntries.count.formatted()) ta element topildi")
+                        Text("\(filteredEntries.count) ta element topildi")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.gray)
                         Spacer()

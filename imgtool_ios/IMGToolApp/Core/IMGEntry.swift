@@ -26,7 +26,7 @@ public enum IMGEntryType: String, CaseIterable, Identifiable {
         switch self {
         case .all: return .blue
         case .dff: return .orange
-        case .txd: return .cyan
+        case .txd: return Color(red: 0.0, green: 0.8, blue: 0.95)
         case .col: return .green
         case .ifp: return .purple
         case .other: return .gray

@@ -135,14 +135,34 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         }
     }
 
-    // MARK: - Native Document Picker
+    // MARK: - Native Document Picker: Select ANY file, including .dff and .txd
     private func openDocumentPicker(mode: String) {
         self.currentPickerMode = mode
         let picker: UIDocumentPickerViewController
         if #available(iOS 14.0, *) {
-            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .item, .image], asCopy: true)
+            var types: [UTType] = [
+                .item,
+                .data,
+                .content,
+                .image,
+                .png,
+                .jpeg
+            ]
+            if let dff = UTType("com.renderware.dff") { types.append(dff) }
+            if let txd = UTType("com.renderware.txd") { types.append(txd) }
+            if let dffExt = UTType(filenameExtension: "dff") { types.append(dffExt) }
+            if let txdExt = UTType(filenameExtension: "txd") { types.append(txdExt) }
+
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
         } else {
-            picker = UIDocumentPickerViewController(documentTypes: ["public.data", "public.item", "public.image"], in: .import)
+            picker = UIDocumentPickerViewController(documentTypes: [
+                "com.renderware.dff",
+                "com.renderware.txd",
+                "public.item",
+                "public.data",
+                "public.content",
+                "public.image"
+            ], in: .import)
         }
         picker.delegate = self
         picker.allowsMultipleSelection = true
@@ -163,6 +183,12 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         }
 
         for selectedUrl in sortedUrls {
+            let needSecurityScope = selectedUrl.startAccessingSecurityScopedResource()
+            defer {
+                if needSecurityScope {
+                    selectedUrl.stopAccessingSecurityScopedResource()
+                }
+            }
             do {
                 let data = try Data(contentsOf: selectedUrl)
                 let base64 = data.base64EncodedString()
@@ -177,6 +203,26 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
 
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
+    }
+
+    // Handle incoming URL from AirDrop / Files app / Telegram "Open in"
+    func handleIncomingURL(_ url: URL) {
+        let needSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if needSecurityScope {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let base64 = data.base64EncodedString()
+            let fileName = url.lastPathComponent
+            let mode = url.pathExtension.lowercased() == "txd" ? "txd" : "open"
+            let js = "window.onNativeFileOpened('\(base64)', '\(fileName)', '\(mode)');"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        } catch {
+            print("Error reading incoming file: \(error)")
+        }
     }
 
     private func exportDFFFile(base64: String, fileName: String) {

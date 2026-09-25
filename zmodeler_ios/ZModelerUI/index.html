@@ -87,11 +87,11 @@
             <div style="position: relative;">
                 <button class="btn btn-secondary" id="btn-menu-file" style="height: 32px; padding: 0 10px; font-size: 12px;">📂 Fayl ▾</button>
                 <div class="dropdown-menu hidden" id="menu-file">
-                    <button class="menu-item" id="btn-open-file">📂 DFF Modelni Ochish</button>
-                    <button class="menu-item" id="btn-open-txd">🖼️ TXD Tekstura Ochish</button>
-                    <button class="menu-item" id="btn-merge-file">➕ Detal Qo'shish (Merge)</button>
+                    <button class="menu-item" id="btn-open-file" onclick="window.triggerFilePicker('open'); document.getElementById('menu-file').classList.add('hidden');">📂 DFF Modelni Ochish</button>
+                    <button class="menu-item" id="btn-open-txd" onclick="window.triggerFilePicker('txd'); document.getElementById('menu-file').classList.add('hidden');">🖼️ TXD Tekstura Ochish</button>
+                    <button class="menu-item" id="btn-merge-file" onclick="window.triggerFilePicker('merge'); document.getElementById('menu-file').classList.add('hidden');">➕ Detal Qo'shish (Merge)</button>
                     <div class="menu-divider"></div>
-                    <button class="menu-item" id="btn-export-dff" style="color: var(--accent-green);">💾 Modelni Saqlash (DFF)</button>
+                    <button class="menu-item" id="btn-export-dff" style="color: var(--accent-green);" onclick="exportCurrentDFF(); document.getElementById('menu-file').classList.add('hidden');">💾 Modelni Saqlash (DFF)</button>
                 </div>
             </div>
 
@@ -108,6 +108,7 @@
 
         <!-- Right: Tools & Drawers -->
         <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn btn-secondary btn-icon" id="btn-top-fit-cam" title="Mashinani markazga keltirish (Fit)">🎯</button>
             <button class="btn btn-secondary btn-icon" id="btn-toggle-quad-mode" title="4-Oyna / 1-Oyna ko'rinishi">⊞</button>
             <button class="btn btn-secondary btn-icon" id="btn-open-mat-editor" title="Material Editor (E)">🎨</button>
             <button class="btn btn-secondary btn-icon" id="btn-open-uv-mapper" title="2D UV Mapper">🗺️</button>

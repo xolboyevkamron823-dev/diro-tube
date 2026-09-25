@@ -31,6 +31,361 @@ static DiroDroneOverlayView *g_droneOverlay = nil;
 static void trigger_native_cheat(uintptr_t offset);
 
 // -----------------------------------------------------------------------------
+
+#import <stdio.h>
+#import <stdlib.h>
+#import <string.h>
+#import <stdarg.h>
+#import <fcntl.h>
+#import <sys/stat.h>
+#import <sys/types.h>
+#import <mach/mach.h>
+#import <mach/vm_map.h>
+#import <mach-o/loader.h>
+#import <mach-o/nlist.h>
+
+// -----------------------------------------------------------------------------
+// FISHHOOK: Dynamic Mach-O Symbol Rebinding (Facebook Fishhook Engine)
+// -----------------------------------------------------------------------------
+#ifdef __LP64__
+typedef struct mach_header_64 diro_mach_header_t;
+typedef struct segment_command_64 diro_segment_command_t;
+typedef struct section_64 diro_section_t;
+typedef struct nlist_64 diro_nlist_t;
+#define DIRO_LC_SEGMENT_ARCH_DEPENDENT LC_SEGMENT_64
+#else
+typedef struct mach_header diro_mach_header_t;
+typedef struct segment_command diro_segment_command_t;
+typedef struct section diro_section_t;
+typedef struct nlist diro_nlist_t;
+#define DIRO_LC_SEGMENT_ARCH_DEPENDENT LC_SEGMENT
+#endif
+
+#ifndef SEG_DATA_CONST
+#define SEG_DATA_CONST "__DATA_CONST"
+#endif
+
+struct diro_rebinding {
+    const char *name;
+    void *replacement;
+    void **replaced;
+};
+
+struct diro_rebindings_entry {
+    struct diro_rebinding *rebindings;
+    size_t rebindings_nel;
+    struct diro_rebindings_entry *next;
+};
+
+static struct diro_rebindings_entry *_diro_rebindings_head = NULL;
+
+static int diro_prepend_rebindings(struct diro_rebindings_entry **rebindings_head,
+                                   struct diro_rebinding rebindings[],
+                                   size_t nel) {
+    struct diro_rebindings_entry *new_entry = (struct diro_rebindings_entry *)malloc(sizeof(struct diro_rebindings_entry));
+    if (!new_entry) return -1;
+    new_entry->rebindings = (struct diro_rebinding *)malloc(sizeof(struct diro_rebinding) * nel);
+    if (!new_entry->rebindings) {
+        free(new_entry);
+        return -1;
+    }
+    memcpy(new_entry->rebindings, rebindings, sizeof(struct diro_rebinding) * nel);
+    new_entry->rebindings_nel = nel;
+    new_entry->next = *rebindings_head;
+    *rebindings_head = new_entry;
+    return 0;
+}
+
+static void diro_perform_rebinding_with_section(struct diro_rebindings_entry *rebindings,
+                                                diro_section_t *section,
+                                                intptr_t slide,
+                                                diro_nlist_t *symtab,
+                                                char *strtab,
+                                                uint32_t *indirect_symtab) {
+    uint32_t *indirect_symbol_indices = indirect_symtab + section->reserved1;
+    void **indirect_symbol_bindings = (void **)((uintptr_t)slide + section->addr);
+
+    for (uint i = 0; i < section->size / sizeof(void *); i++) {
+        uint32_t symtab_index = indirect_symbol_indices[i];
+        if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
+            symtab_index == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) {
+            continue;
+        }
+        uint32_t strtab_offset = symtab[symtab_index].n_un.n_strx;
+        char *symbol_name = strtab + strtab_offset;
+        bool symbol_name_longer_than_1 = symbol_name[0] && symbol_name[1];
+        struct diro_rebindings_entry *cur = rebindings;
+        while (cur) {
+            for (uint j = 0; j < cur->rebindings_nel; j++) {
+                if (symbol_name_longer_than_1 && strcmp(&symbol_name[1], cur->rebindings[j].name) == 0) {
+                    if (cur->rebindings[j].replaced != NULL && indirect_symbol_bindings[i] != cur->rebindings[j].replacement) {
+                        *(cur->rebindings[j].replaced) = indirect_symbol_bindings[i];
+                    }
+
+                    kern_return_t err = vm_protect(mach_task_self(), (uintptr_t)indirect_symbol_bindings, section->size, 0, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+                    if (err == KERN_SUCCESS) {
+                        indirect_symbol_bindings[i] = cur->rebindings[j].replacement;
+                    }
+                    goto diro_sym_done;
+                }
+            }
+            cur = cur->next;
+        }
+    diro_sym_done:;
+    }
+}
+
+static void diro_rebind_symbols_for_image(struct diro_rebindings_entry *rebindings,
+                                          const struct mach_header *header,
+                                          intptr_t slide) {
+    Dl_info info;
+    if (dladdr(header, &info) == 0) return;
+
+    diro_segment_command_t *cur_seg_cmd;
+    diro_segment_command_t *linkedit_segment = NULL;
+    struct symtab_command* symtab_cmd = NULL;
+    struct dysymtab_command* dysymtab_cmd = NULL;
+
+    uintptr_t cur = (uintptr_t)header + sizeof(diro_mach_header_t);
+    for (uint i = 0; i < header->ncmds; i++, cur += cur_seg_cmd->cmdsize) {
+        cur_seg_cmd = (diro_segment_command_t *)cur;
+        if (cur_seg_cmd->cmd == DIRO_LC_SEGMENT_ARCH_DEPENDENT) {
+            if (strcmp(cur_seg_cmd->segname, SEG_LINKEDIT) == 0) {
+                linkedit_segment = cur_seg_cmd;
+            }
+        } else if (cur_seg_cmd->cmd == LC_SYMTAB) {
+            symtab_cmd = (struct symtab_command*)cur_seg_cmd;
+        } else if (cur_seg_cmd->cmd == LC_DYSYMTAB) {
+            dysymtab_cmd = (struct dysymtab_command*)cur_seg_cmd;
+        }
+    }
+
+    if (!symtab_cmd || !dysymtab_cmd || !linkedit_segment || !dysymtab_cmd->nindirectsyms) {
+        return;
+    }
+
+    uintptr_t linkedit_base = (uintptr_t)slide + linkedit_segment->vmaddr - linkedit_segment->fileoff;
+    diro_nlist_t *symtab = (diro_nlist_t *)(linkedit_base + symtab_cmd->symoff);
+    char *strtab = (char *)(linkedit_base + symtab_cmd->stroff);
+    uint32_t *indirect_symtab = (uint32_t *)(linkedit_base + dysymtab_cmd->indirectsymoff);
+
+    cur = (uintptr_t)header + sizeof(diro_mach_header_t);
+    for (uint i = 0; i < header->ncmds; i++, cur += cur_seg_cmd->cmdsize) {
+        cur_seg_cmd = (diro_segment_command_t *)cur;
+        if (cur_seg_cmd->cmd == DIRO_LC_SEGMENT_ARCH_DEPENDENT) {
+            if (strcmp(cur_seg_cmd->segname, SEG_DATA) != 0 &&
+                strcmp(cur_seg_cmd->segname, SEG_DATA_CONST) != 0) {
+                continue;
+            }
+            for (uint j = 0; j < cur_seg_cmd->nsects; j++) {
+                diro_section_t *sect = (diro_section_t *)(cur + sizeof(diro_segment_command_t)) + j;
+                if ((sect->flags & SECTION_TYPE) == S_LAZY_SYMBOL_POINTERS ||
+                    (sect->flags & SECTION_TYPE) == S_NON_LAZY_SYMBOL_POINTERS) {
+                    diro_perform_rebinding_with_section(rebindings, sect, slide, symtab, strtab, indirect_symtab);
+                }
+            }
+        }
+    }
+}
+
+static void _diro_rebind_symbols_for_image_cb(const struct mach_header *header, intptr_t slide) {
+    diro_rebind_symbols_for_image(_diro_rebindings_head, header, slide);
+}
+
+static int diro_rebind_symbols(struct diro_rebinding rebindings[], size_t rebindings_nel) {
+    int retval = diro_prepend_rebindings(&_diro_rebindings_head, rebindings, rebindings_nel);
+    if (retval < 0) return retval;
+    if (!_diro_rebindings_head->next) {
+        _dyld_register_func_for_add_image(_diro_rebind_symbols_for_image_cb);
+    } else {
+        uint32_t c = _dyld_image_count();
+        for (uint32_t i = 0; i < c; i++) {
+            _diro_rebind_symbols_for_image_cb(_dyld_get_image_header(i), _dyld_get_image_vmaddr_slide(i));
+        }
+    }
+    return retval;
+}
+
+// -----------------------------------------------------------------------------
+// DIRO UNIVERSAL MODLOADER (GTA3.IMG & TEXDB REDIRECTION)
+// -----------------------------------------------------------------------------
+static char g_modloaderStatus[256] = "ModLoader: Asl gta3.img faol";
+static bool g_hasModdedGta3 = false;
+
+static const char *get_documents_path(void) {
+    static char s_docs[512] = {0};
+    if (s_docs[0] != '\0') return s_docs;
+
+    const char *home = getenv("HOME");
+    if (home && home[0] != '\0') {
+        snprintf(s_docs, sizeof(s_docs), "%s/Documents", home);
+        if (access(s_docs, F_OK) == 0) {
+            return s_docs;
+        }
+    }
+
+    @autoreleasepool {
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        if (paths.count > 0) {
+            strncpy(s_docs, [[paths firstObject] UTF8String], sizeof(s_docs) - 1);
+            return s_docs;
+        }
+    }
+    return NULL;
+}
+
+static const char *get_filename_from_path(const char *path) {
+    if (!path) return NULL;
+    const char *p1 = strrchr(path, '/');
+    const char *p2 = strrchr(path, '\\');
+    const char *f = path;
+    if (p1 && p1 >= f) f = p1 + 1;
+    if (p2 && p2 >= f) f = p2 + 1;
+    return f;
+}
+
+static const char *redirect_game_path(const char *path) {
+    if (!path || path[0] == '\0') return NULL;
+
+    // Do NOT redirect if path already points into Documents, tmp, or Caches
+    if (strstr(path, "/Documents") || strstr(path, "/tmp") || strstr(path, "/Caches")) {
+        return NULL;
+    }
+
+    const char *docs = get_documents_path();
+    if (!docs) return NULL;
+
+    const char *fname = get_filename_from_path(path);
+    if (!fname || fname[0] == '\0') return NULL;
+
+    const char *ext = strrchr(fname, '.');
+    if (!ext) return NULL;
+
+    bool is_redirectable = (strcasecmp(ext, ".img") == 0 ||
+                            strcasecmp(ext, ".dat") == 0 ||
+                            strcasecmp(ext, ".ide") == 0 ||
+                            strcasecmp(ext, ".ipl") == 0 ||
+                            strcasecmp(ext, ".cfg") == 0 ||
+                            strcasecmp(ext, ".txt") == 0 ||
+                            strcasecmp(ext, ".tmb") == 0 ||
+                            strcasecmp(ext, ".toc") == 0);
+    if (!is_redirectable) return NULL;
+
+    static __thread char redirected[1024];
+
+    // Check Candidate 1: Documents/<clean_texdb_path> if "texdb" in path
+    const char *texdb_sub = strcasestr(path, "texdb");
+    if (texdb_sub) {
+        char clean_sub[256];
+        strncpy(clean_sub, texdb_sub, sizeof(clean_sub) - 1);
+        clean_sub[sizeof(clean_sub) - 1] = '\0';
+        for (char *c = clean_sub; *c; c++) {
+            if (*c == '\\') *c = '/';
+        }
+        snprintf(redirected, sizeof(redirected), "%s/%s", docs, clean_sub);
+        if (access(redirected, R_OK) == 0) {
+            return redirected;
+        }
+    }
+
+    // Check Candidate 2: Documents/<filename> (e.g. Documents/gta3.img)
+    snprintf(redirected, sizeof(redirected), "%s/%s", docs, fname);
+    if (access(redirected, R_OK) == 0) {
+        return redirected;
+    }
+
+    // Check Candidate 3: Documents/texdb/<filename> (e.g. Documents/texdb/gta3.img)
+    snprintf(redirected, sizeof(redirected), "%s/texdb/%s", docs, fname);
+    if (access(redirected, R_OK) == 0) {
+        return redirected;
+    }
+
+    // Check Candidate 4: Documents/data/<filename>
+    snprintf(redirected, sizeof(redirected), "%s/data/%s", docs, fname);
+    if (access(redirected, R_OK) == 0) {
+        return redirected;
+    }
+
+    return NULL;
+}
+
+static FILE *(*orig_fopen)(const char *path, const char *mode) = NULL;
+static int (*orig_stat)(const char *path, struct stat *buf) = NULL;
+static int (*orig_open)(const char *path, int oflag, ...) = NULL;
+
+static FILE *my_fopen(const char *path, const char *mode) {
+    if (!orig_fopen) {
+        orig_fopen = (FILE *(*)(const char *, const char *))dlsym(RTLD_DEFAULT, "fopen");
+    }
+
+    const char *redir = redirect_game_path(path);
+    if (redir) {
+        FILE *f = orig_fopen(redir, mode);
+        if (!f && mode && strstr(mode, "+")) {
+            f = orig_fopen(redir, "rb");
+        }
+        if (f) {
+            NSLog(@"[DIRO-MODLOADER] [FOPEN REDIRECT] %s -> %s (mode=%s)", path, redir, mode ? mode : "");
+            if (strcasestr(redir, "gta3.img")) {
+                g_hasModdedGta3 = true;
+                struct stat st;
+                if (stat(redir, &st) == 0) {
+                    snprintf(g_modloaderStatus, sizeof(g_modloaderStatus), "Mod: gta3.img faol (%.1f MB)", (double)st.st_size / (1024.0 * 1024.0));
+                } else {
+                    strncpy(g_modloaderStatus, "Mod: gta3.img faol", sizeof(g_modloaderStatus));
+                }
+            }
+            return f;
+        } else {
+            NSLog(@"[DIRO-MODLOADER] [FOPEN REDIRECT FAILED] %s, fallback to original", redir);
+        }
+    }
+
+    return orig_fopen(path, mode);
+}
+
+static int my_stat(const char *path, struct stat *buf) {
+    if (!orig_stat) {
+        orig_stat = (int (*)(const char *, struct stat *))dlsym(RTLD_DEFAULT, "stat");
+    }
+
+    const char *redir = redirect_game_path(path);
+    if (redir) {
+        int res = orig_stat(redir, buf);
+        if (res == 0) {
+            NSLog(@"[DIRO-MODLOADER] [STAT REDIRECT] %s -> %s (size=%lld)", path, redir, (long long)buf->st_size);
+            return 0;
+        }
+    }
+
+    return orig_stat(path, buf);
+}
+
+static int my_open(const char *path, int oflag, ...) {
+    if (!orig_open) {
+        orig_open = (int (*)(const char *, int, ...))dlsym(RTLD_DEFAULT, "open");
+    }
+
+    mode_t mode = 0;
+    if (oflag & O_CREAT) {
+        va_list args;
+        va_start(args, oflag);
+        mode = (mode_t)va_arg(args, int);
+        va_end(args);
+    }
+
+    const char *redir = redirect_game_path(path);
+    if (redir) {
+        int fd = (oflag & O_CREAT) ? orig_open(redir, oflag, mode) : orig_open(redir, oflag);
+        if (fd >= 0) {
+            NSLog(@"[DIRO-MODLOADER] [OPEN REDIRECT] %s -> %s (fd=%d)", path, redir, fd);
+            return fd;
+        }
+    }
+
+    return (oflag & O_CREAT) ? orig_open(path, oflag, mode) : orig_open(path, oflag);
+}
+
 // ASLR Slide & Engine Pointers
 // -----------------------------------------------------------------------------
 static intptr_t get_gtasa_slide(void) {
@@ -2139,6 +2494,13 @@ static NSString *get_vehicle_name(int modelId) {
 - (void)toggleVisibility {
     BOOL shouldOpen = self.hidden;
     if (shouldOpen) {
+        if (g_hasModdedGta3) {
+            self.subTitleLabel.text = [NSString stringWithUTF8String:g_modloaderStatus];
+            self.subTitleLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 blue:0.5 alpha:1.0];
+        } else {
+            self.subTitleLabel.text = @"100% Oflayn • Registratsiyasiz • Pro VIP Funksiyalar";
+            self.subTitleLabel.textColor = [UIColor colorWithWhite:0.75 alpha:1.0];
+        }
         self.transform = CGAffineTransformMakeScale(0.85, 0.85);
         self.alpha = 0.0;
         self.hidden = NO;
@@ -3304,6 +3666,35 @@ static void setup_diro_ui(void) {
 __attribute__((constructor))
 static void diro_entry(void) {
     NSLog(@"[DIRO] Diro GTASA.dylib successfully loaded into GTA SA process!");
+
+    // Setup ModLoader redirection for gta3.img and game files
+    struct diro_rebinding rebs[] = {
+        {"fopen", (void *)my_fopen, (void **)&orig_fopen},
+        {"stat", (void *)my_stat, (void **)&orig_stat},
+        {"open", (void *)my_open, (void **)&orig_open}
+    };
+    diro_rebind_symbols(rebs, sizeof(rebs) / sizeof(rebs[0]));
+    NSLog(@"[DIRO-MODLOADER] Symbol rebinding active for fopen, stat, open!");
+
+    // Check upfront if user has gta3.img in Documents
+    const char *docs = get_documents_path();
+    if (docs) {
+        char test_img[1024];
+        snprintf(test_img, sizeof(test_img), "%s/gta3.img", docs);
+        struct stat st;
+        if (stat(test_img, &st) == 0) {
+            g_hasModdedGta3 = true;
+            snprintf(g_modloaderStatus, sizeof(g_modloaderStatus), "Mod: gta3.img faol (%.1f MB)", (double)st.st_size / (1024.0 * 1024.0));
+            NSLog(@"[DIRO-MODLOADER] Upfront check: %s found! (%lld bytes)", test_img, (long long)st.st_size);
+        } else {
+            snprintf(test_img, sizeof(test_img), "%s/texdb/gta3.img", docs);
+            if (stat(test_img, &st) == 0) {
+                g_hasModdedGta3 = true;
+                snprintf(g_modloaderStatus, sizeof(g_modloaderStatus), "Mod: texdb/gta3.img faol (%.1f MB)", (double)st.st_size / (1024.0 * 1024.0));
+                NSLog(@"[DIRO-MODLOADER] Upfront check: %s found! (%lld bytes)", test_img, (long long)st.st_size);
+            }
+        }
+    }
 
     // 1. Load original engine dylib with GameCenterFix to ensure 100% loading stability
     NSString *origPath = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"Frameworks/GTASA_Original.dylib"];

@@ -25,6 +25,7 @@ const RW_CHUNKS = {
     USERDATA: 0x011E,
     MATFX: 0x0120,
     BINMESH: 0x050E,
+    NATIVEDATA: 0x0510,
     FRAMENAME: 0x0253F2FE,
     COLLISION: 0x0253F2FE
 };
@@ -623,6 +624,46 @@ class DFFModel {
                         meshes.push({ matIndex, indices });
                     }
                     binMesh = { flags, numMeshes, totalIndices, meshes };
+                } else if (subH.type === RW_CHUNKS.NATIVEDATA || subH.type === 0x0510) {
+                    if (vertices.length === 0 && numVertices > 0) {
+                        const payloadStart = reader.offset;
+                        const natLen = subH.size;
+                        if (natLen >= 76) {
+                            let stride = reader.view.getUint32(payloadStart + 20, true);
+                            if (stride < 12 || stride > 64) stride = 20;
+
+                            let vstart = 76;
+                            // Verify validity of float at vstart
+                            if (vstart + 12 <= natLen) {
+                                const fx = reader.view.getFloat32(payloadStart + vstart, true);
+                                if (isNaN(fx) || Math.abs(fx) > 200) {
+                                    for (let off = 0; off <= Math.min(150, natLen - 12); off += 4) {
+                                        const testX = reader.view.getFloat32(payloadStart + off, true);
+                                        const testY = reader.view.getFloat32(payloadStart + off + 4, true);
+                                        const testZ = reader.view.getFloat32(payloadStart + off + 8, true);
+                                        if (!isNaN(testX) && Math.abs(testX) < 100 &&
+                                            !isNaN(testY) && Math.abs(testY) < 100 &&
+                                            !isNaN(testZ) && Math.abs(testZ) < 100) {
+                                            vstart = off;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            for (let vi = 0; vi < numVertices; vi++) {
+                                const voff = payloadStart + vstart + vi * stride;
+                                if (voff + 12 <= reader.length) {
+                                    vertices.push({
+                                        x: reader.view.getFloat32(voff, true),
+                                        y: reader.view.getFloat32(voff + 4, true),
+                                        z: reader.view.getFloat32(voff + 8, true)
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    reader.seek(subH.payloadEnd);
                 } else {
                     extensions.push({
                         type: subH.type,
@@ -632,6 +673,32 @@ class DFFModel {
                 }
             }
             reader.seek(extEnd);
+        }
+
+        // Robust Fallback: If vertices are still empty (Native models where 0x510 was placed differently)
+        if (vertices.length === 0 && numVertices > 0) {
+            const scanStart = structHeader.payloadEnd;
+            const scanEnd = Math.min(reader.length - 24, end);
+            for (let i = scanStart; i <= scanEnd - 12; i++) {
+                if (reader.view.getUint32(i, true) === 0x0510 && (reader.view.getUint32(i + 8, true) & 0xffff) === 0xffff) {
+                    const natSize = reader.view.getUint32(i + 4, true);
+                    const pStart = i + 12;
+                    let stride = reader.view.getUint32(pStart + 20, true);
+                    if (stride < 12 || stride > 64) stride = 20;
+                    const vstart = 76;
+                    for (let vi = 0; vi < numVertices; vi++) {
+                        const voff = pStart + vstart + vi * stride;
+                        if (voff + 12 <= reader.length) {
+                            vertices.push({
+                                x: reader.view.getFloat32(voff, true),
+                                y: reader.view.getFloat32(voff + 4, true),
+                                z: reader.view.getFloat32(voff + 8, true)
+                            });
+                        }
+                    }
+                    break;
+                }
+            }
         }
 
         reader.seek(end);

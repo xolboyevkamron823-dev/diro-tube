@@ -130,7 +130,7 @@
   <script src="RenderWare.js"></script>
 
   <script>
-    let scene, camera, renderer, controls, headlight;
+    let scene, camera, renderer, controls, headlight, turntableGroup;
     let currentModelGroup = null;
     let autoRotate = true;
     let isWireframe = false;
@@ -144,6 +144,11 @@
       // 1. Scene
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0c0e14);
+
+      // Turntable container for pure horizontal rotation around world Y
+      turntableGroup = new THREE.Group();
+      turntableGroup.name = "Turntable_Container";
+      scene.add(turntableGroup);
 
       // Gradient ground grid
       const grid = new THREE.GridHelper(30, 30, 0x007aff, 0x222a38);
@@ -165,24 +170,27 @@
       controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
-      controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't flip below ground
+      controls.maxPolarAngle = Math.PI / 2 + 0.05; // Don't flip below ground
       controls.minDistance = 0.5;
       controls.maxDistance = 50;
 
-      // 5. Lights
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+      // 5. Lights (Studio lighting for realistic automotive presentation)
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
       scene.add(ambientLight);
+
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x2a3242, 0.85);
+      scene.add(hemiLight);
 
       headlight = new THREE.DirectionalLight(0xffffff, 0.85);
       headlight.position.set(0, 0, 1);
       scene.add(headlight);
 
-      const topLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      const topLight = new THREE.DirectionalLight(0xffffff, 0.7);
       topLight.position.set(0, 10, 0);
       scene.add(topLight);
 
-      const fillLight = new THREE.DirectionalLight(0x4466aa, 0.4);
-      fillLight.position.set(-5, -5, -5);
+      const fillLight = new THREE.DirectionalLight(0x5577aa, 0.45);
+      fillLight.position.set(-6, 3, -6);
       scene.add(fillLight);
 
       window.addEventListener('resize', onWindowResize, false);
@@ -202,8 +210,9 @@
       if (headlight && camera) {
         headlight.position.copy(camera.position);
       }
-      if (currentModelGroup && autoRotate) {
-        currentModelGroup.rotation.y += 0.008;
+      // Rotate ONLY the world-up turntable to ensure perfectly horizontal spinning on wheels
+      if (turntableGroup && autoRotate) {
+        turntableGroup.rotation.y += 0.008;
       }
       if (renderer && scene && camera) {
         renderer.render(scene, camera);
@@ -234,8 +243,8 @@
     function resetCamera() {
       if (!currentModelGroup) return;
       controls.reset();
-      camera.position.set(defaultCamDistance * 0.8, defaultCamDistance * 0.6, defaultCamDistance);
-      controls.target.set(0, 0, 0);
+      camera.position.set(defaultCamDistance * 0.9, defaultCamDistance * 0.6, defaultCamDistance);
+      controls.target.set(0, defaultCamDistance * 0.2, 0);
       controls.update();
     }
 
@@ -275,10 +284,31 @@
         }
       }
 
-      // 3. Attach Geometries
+      // 3. Find highest-detail atomic for each frame (eliminates duplicate chassis/bonnets/bumpers)
+      const bestAtomicByFrame = new Map();
       for (let i = 0; i < dff.atomics.length; i++) {
         const at = dff.atomics[i];
         if (at.frameIndex >= frameGroups.length || at.geometryIndex >= dff.geometries.length) continue;
+        const geom = dff.geometries[at.geometryIndex];
+        const vCount = (geom && geom.vertices) ? geom.vertices.length : (geom ? (geom.numVertices || 0) : 0);
+        if (!bestAtomicByFrame.has(at.frameIndex)) {
+          bestAtomicByFrame.set(at.frameIndex, { index: i, count: vCount });
+        } else {
+          const prev = bestAtomicByFrame.get(at.frameIndex);
+          if (vCount > prev.count) {
+            bestAtomicByFrame.set(at.frameIndex, { index: i, count: vCount });
+          }
+        }
+      }
+
+      // 4. Attach Geometries
+      for (let i = 0; i < dff.atomics.length; i++) {
+        const at = dff.atomics[i];
+        if (at.frameIndex >= frameGroups.length || at.geometryIndex >= dff.geometries.length) continue;
+
+        // Skip lower-detail duplicate atomic for the same frame
+        const best = bestAtomicByFrame.get(at.frameIndex);
+        if (best && best.index !== i) continue;
 
         const targetGroup = frameGroups[at.frameIndex];
         const geom = dff.geometries[at.geometryIndex];
@@ -348,14 +378,51 @@
         if (geom.materials && geom.materials.length > 0) {
           for (let m = 0; m < geom.materials.length; m++) {
             const mat = geom.materials[m];
-            let col = mat.color ? new THREE.Color(mat.color.r / 255, mat.color.g / 255, mat.color.b / 255) : new THREE.Color(0xb5bcc7);
-            if (col.r < 0.12 && col.g < 0.12 && col.b < 0.12) {
-              col = new THREE.Color(0x2d323b);
+            const mr = mat.color ? mat.color.r : 255;
+            const mg = mat.color ? mat.color.g : 255;
+            const mb = mat.color ? mat.color.b : 255;
+
+            let col;
+            let roughness = 0.35;
+            let metalness = 0.25;
+
+            // GTA SA carcols color markers:
+            if (mr === 60 && mg === 255 && mb === 0) {
+              // Primary Vehicle Body Paint (Metallic Deep Sapphire Blue)
+              col = new THREE.Color(0x234975);
+              roughness = 0.20;
+              metalness = 0.60;
+            } else if (mr === 255 && mg === 0 && mb === 175) {
+              // Secondary Accent Paint (Dark Obsidian Charcoal)
+              col = new THREE.Color(0x23272e);
+              roughness = 0.28;
+              metalness = 0.40;
+            } else if (mr === 255 && mg === 175 && mb === 0) {
+              // Amber indicator light
+              col = new THREE.Color(0xff9900);
+              roughness = 0.2;
+            } else if (mr === 185 && mg === 255 && mb === 0) {
+              // Headlight glass
+              col = new THREE.Color(0xdceeff);
+              roughness = 0.15;
+            } else if (mr === 0 && mg === 255 && mb === 200) {
+              // Reverse light
+              col = new THREE.Color(0xf5f8ff);
+            } else if (mr === 255 && mg === 60 && mb === 0) {
+              // Tail light
+              col = new THREE.Color(0xdd1818);
+            } else {
+              col = new THREE.Color(mr / 255, mg / 255, mb / 255);
+              // Avoid unlit pitch black surfaces: ensure minimum diffuse lightness
+              col.r = Math.max(col.r, 0.18);
+              col.g = Math.max(col.g, 0.18);
+              col.b = Math.max(col.b, 0.18);
             }
+
             const threeMat = new THREE.MeshStandardMaterial({
               color: col,
-              roughness: 0.35,
-              metalness: 0.25,
+              roughness: roughness,
+              metalness: metalness,
               side: THREE.DoubleSide,
               wireframe: isWireframe
             });
@@ -363,9 +430,9 @@
           }
         } else {
           const defMat = new THREE.MeshStandardMaterial({
-            color: 0xa0a8b4,
-            roughness: 0.4,
-            metalness: 0.2,
+            color: 0x9aa4b2,
+            roughness: 0.35,
+            metalness: 0.3,
             side: THREE.DoubleSide,
             wireframe: isWireframe
           });
@@ -410,9 +477,10 @@
           }
 
           if (currentModelGroup) {
-            scene.remove(currentModelGroup);
+            turntableGroup.remove(currentModelGroup);
             currentModelGroup = null;
           }
+          turntableGroup.rotation.set(0, 0, 0);
 
           const dff = new DFFModel();
           dff.fileName = (fileName || "model").replace(/\.[^/.]+$/, "");
@@ -445,13 +513,13 @@
           const size = meshesBox.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z) || 1.0;
 
-          // Center horizontally (X & Z)
-          currentModelGroup.position.x -= center.x;
-          currentModelGroup.position.z -= center.z;
+          // Center horizontally (X & Z) relative to turntable pivot
+          currentModelGroup.position.x = -center.x;
+          currentModelGroup.position.z = -center.z;
           // Place wheels right on ground level (Y = 0)
-          currentModelGroup.position.y -= meshesBox.min.y;
+          currentModelGroup.position.y = -meshesBox.min.y;
 
-          scene.add(currentModelGroup);
+          turntableGroup.add(currentModelGroup);
 
           // Update camera
           defaultCamDistance = maxDim * 2.0;

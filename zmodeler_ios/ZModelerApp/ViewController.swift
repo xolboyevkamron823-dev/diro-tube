@@ -174,6 +174,8 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         present(picker, animated: true)
     }
 
+    private var pendingUrls: [URL] = []
+
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard !urls.isEmpty else { return }
 
@@ -187,22 +189,33 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
             return false
         }
 
-        for selectedUrl in sortedUrls {
-            sendFileToWebView(url: selectedUrl, mode: self.currentPickerMode)
-        }
-        self.currentPickerMode = "open"
+        self.pendingUrls = sortedUrls
+        processNextPendingFile()
 
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
     }
 
+    private func processNextPendingFile() {
+        guard !pendingUrls.isEmpty else {
+            self.currentPickerMode = "open"
+            return
+        }
+        let nextUrl = pendingUrls.removeFirst()
+        sendFileToWebView(url: nextUrl, mode: self.currentPickerMode) { [weak self] in
+            DispatchQueue.main.async {
+                self?.processNextPendingFile()
+            }
+        }
+    }
+
     // Handle incoming URL from AirDrop / Files app / Telegram "Open in"
     func handleIncomingURL(_ url: URL) {
         let mode = url.pathExtension.lowercased() == "txd" ? "txd" : "open"
-        sendFileToWebView(url: url, mode: mode)
+        sendFileToWebView(url: url, mode: mode, completion: nil)
     }
 
-    private func sendFileToWebView(url: URL, mode: String) {
+    private func sendFileToWebView(url: URL, mode: String, completion: (() -> Void)? = nil) {
         let needSecurityScope = url.startAccessingSecurityScopedResource()
         defer {
             if needSecurityScope {
@@ -234,8 +247,12 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
                 if let jsonData = try? JSONSerialization.data(withJSONObject: payload),
                    let jsonStr = String(data: jsonData, encoding: .utf8) {
                     DispatchQueue.main.async { [weak self] in
-                        self?.webView.evaluateJavaScript("window.onNativeFileJson(\(jsonStr));", completionHandler: nil)
+                        self?.webView.evaluateJavaScript("window.onNativeFileJson(\(jsonStr));") { _, _ in
+                            completion?()
+                        }
                     }
+                } else {
+                    completion?()
                 }
             } else {
                 // Chunked transfer for large 34MB+ models to prevent WebKit IPC overflow
@@ -252,21 +269,26 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
                    let initJsonStr = String(data: initData, encoding: .utf8) {
                     DispatchQueue.main.async { [weak self] in
                         self?.webView.evaluateJavaScript("window.initNativeFileTransfer(\(initJsonStr));") { [weak self] _, _ in
-                            self?.sendChunks(base64: base64, chunkSize: chunkSize, offset: 0, chunkIndex: 0)
+                            self?.sendChunks(base64: base64, chunkSize: chunkSize, offset: 0, chunkIndex: 0, completion: completion)
                         }
                     }
+                } else {
+                    completion?()
                 }
             }
         } catch {
             print("Error reading \(url): \(error)")
+            completion?()
         }
     }
 
-    private func sendChunks(base64: String, chunkSize: Int, offset: Int, chunkIndex: Int) {
+    private func sendChunks(base64: String, chunkSize: Int, offset: Int, chunkIndex: Int, completion: (() -> Void)? = nil) {
         let totalLength = base64.count
         if offset >= totalLength {
             DispatchQueue.main.async { [weak self] in
-                self?.webView.evaluateJavaScript("window.finishNativeFileTransfer();", completionHandler: nil)
+                self?.webView.evaluateJavaScript("window.finishNativeFileTransfer();") { _, _ in
+                    completion?()
+                }
             }
             return
         }
@@ -282,12 +304,15 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
             DispatchQueue.main.async { [weak self] in
                 self?.webView.evaluateJavaScript("window.appendNativeFileChunk(\(chunkJsonStr));") { [weak self] _, error in
                     if error == nil {
-                        self?.sendChunks(base64: base64, chunkSize: chunkSize, offset: nextOffset, chunkIndex: chunkIndex + 1)
+                        self?.sendChunks(base64: base64, chunkSize: chunkSize, offset: nextOffset, chunkIndex: chunkIndex + 1, completion: completion)
                     } else {
                         print("Error sending chunk \(chunkIndex): \(String(describing: error))")
+                        completion?()
                     }
                 }
             }
+        } else {
+            completion?()
         }
     }
 

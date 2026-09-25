@@ -37,10 +37,10 @@ struct ArchiveHeaderView: View {
                         Text("Qo'llanma")
                             .font(.system(size: 13, weight: .semibold))
                     }
-                    .foregroundColor(.cyan)
+                    .foregroundColor(Color(red: 0.0, green: 0.8, blue: 0.95))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Color.cyan.opacity(0.15))
+                    .background(Color(red: 0.0, green: 0.8, blue: 0.95).opacity(0.15))
                     .cornerRadius(20)
                 }
             }
@@ -62,7 +62,7 @@ struct ArchiveHeaderView: View {
                                 Text("•")
                                     .foregroundColor(.gray)
                                 
-                                Label("\(archive.entries.count.formatted()) fayl", systemImage: "doc.on.doc.fill")
+                                Label("\(archive.entries.count) fayl", systemImage: "doc.on.doc.fill")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.blue)
                             }

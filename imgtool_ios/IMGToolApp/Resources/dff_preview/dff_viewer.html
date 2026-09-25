@@ -239,6 +239,141 @@
       controls.update();
     }
 
+    function buildThreeGroupFromDFF(dff) {
+      const rootGroup = new THREE.Group();
+      rootGroup.name = "DFF_Root";
+      const frameGroups = [];
+
+      // 1. Create a THREE.Group for each frame
+      for (let i = 0; i < dff.frames.length; i++) {
+        const frame = dff.frames[i];
+        const group = new THREE.Group();
+        group.name = frame.name || ("frame_" + i);
+
+        group.position.set(frame.pos[0], frame.pos[1], frame.pos[2]);
+
+        const m = new THREE.Matrix4();
+        m.set(
+          frame.rot[0], frame.rot[3], frame.rot[6], 0,
+          frame.rot[1], frame.rot[4], frame.rot[7], 0,
+          frame.rot[2], frame.rot[5], frame.rot[8], 0,
+          0, 0, 0, 1
+        );
+        group.quaternion.setFromRotationMatrix(m);
+        frameGroups.push(group);
+      }
+
+      // 2. Assemble Hierarchy
+      for (let i = 0; i < dff.frames.length; i++) {
+        const frame = dff.frames[i];
+        const group = frameGroups[i];
+
+        if (frame.parentIndex >= 0 && frame.parentIndex < frameGroups.length) {
+          frameGroups[frame.parentIndex].add(group);
+        } else {
+          rootGroup.add(group);
+        }
+      }
+
+      // 3. Attach Geometries
+      for (let i = 0; i < dff.atomics.length; i++) {
+        const at = dff.atomics[i];
+        if (at.frameIndex >= frameGroups.length || at.geometryIndex >= dff.geometries.length) continue;
+
+        const targetGroup = frameGroups[at.frameIndex];
+        const geom = dff.geometries[at.geometryIndex];
+        const bufferGeom = new THREE.BufferGeometry();
+
+        if (geom.vertices && geom.vertices.length > 0) {
+          const posArray = new Float32Array(geom.vertices.length * 3);
+          for (let v = 0; v < geom.vertices.length; v++) {
+            posArray[v * 3] = geom.vertices[v].x;
+            posArray[v * 3 + 1] = geom.vertices[v].y;
+            posArray[v * 3 + 2] = geom.vertices[v].z;
+          }
+          bufferGeom.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        }
+
+        if (geom.normals && geom.normals.length > 0) {
+          const normArray = new Float32Array(geom.normals.length * 3);
+          for (let n = 0; n < geom.normals.length; n++) {
+            normArray[n * 3] = geom.normals[n].x;
+            normArray[n * 3 + 1] = geom.normals[n].y;
+            normArray[n * 3 + 2] = geom.normals[n].z;
+          }
+          bufferGeom.setAttribute('normal', new THREE.BufferAttribute(normArray, 3));
+        } else {
+          bufferGeom.computeVertexNormals();
+        }
+
+        if (geom.texCoordSets && geom.texCoordSets.length > 0 && geom.texCoordSets[0].length > 0) {
+          const uvSet = geom.texCoordSets[0];
+          const uvArray = new Float32Array(uvSet.length * 2);
+          for (let u = 0; u < uvSet.length; u++) {
+            uvArray[u * 2] = uvSet[u].u;
+            uvArray[u * 2 + 1] = uvSet[u].v;
+          }
+          bufferGeom.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
+        }
+
+        if (geom.colors && geom.colors.length > 0) {
+          const colArray = new Float32Array(geom.colors.length * 3);
+          for (let c = 0; c < geom.colors.length; c++) {
+            colArray[c * 3] = geom.colors[c].r / 255.0;
+            colArray[c * 3 + 1] = geom.colors[c].g / 255.0;
+            colArray[c * 3 + 2] = geom.colors[c].b / 255.0;
+          }
+          bufferGeom.setAttribute('color', new THREE.BufferAttribute(colArray, 3));
+        }
+
+        // Unpack Tristrips & Multi-Materials
+        const unpackedMeshes = DFFModel.getGeometryTriangles(geom);
+        let allIndices = [];
+
+        if (unpackedMeshes && unpackedMeshes.length > 0) {
+          for (const sub of unpackedMeshes) {
+            const start = allIndices.length;
+            for (let k = 0; k < sub.indices.length; k++) allIndices.push(sub.indices[k]);
+            bufferGeom.addGroup(start, sub.indices.length, sub.matIndex);
+          }
+        }
+
+        const needsUint32 = (geom.numVertices > 65535) || allIndices.some(idx => idx > 65535);
+        if (needsUint32) bufferGeom.setIndex(new THREE.Uint32BufferAttribute(new Uint32Array(allIndices), 1));
+        else bufferGeom.setIndex(new THREE.Uint16BufferAttribute(new Uint16Array(allIndices), 1));
+
+        let threeMaterials = [];
+        if (geom.materials && geom.materials.length > 0) {
+          for (let m = 0; m < geom.materials.length; m++) {
+            const mat = geom.materials[m];
+            const col = mat.color ? new THREE.Color(mat.color.r / 255, mat.color.g / 255, mat.color.b / 255) : new THREE.Color(0xb5bcc7);
+            const threeMat = new THREE.MeshStandardMaterial({
+              color: col,
+              roughness: 0.35,
+              metalness: 0.25,
+              side: THREE.DoubleSide,
+              wireframe: isWireframe
+            });
+            threeMaterials.push(threeMat);
+          }
+        } else {
+          const defMat = new THREE.MeshStandardMaterial({
+            color: 0xa0a8b4,
+            roughness: 0.4,
+            metalness: 0.2,
+            side: THREE.DoubleSide,
+            wireframe: isWireframe
+          });
+          threeMaterials.push(defMat);
+        }
+
+        const mesh = new THREE.Mesh(bufferGeom, threeMaterials.length === 1 ? threeMaterials[0] : threeMaterials);
+        targetGroup.add(mesh);
+      }
+
+      return rootGroup;
+    }
+
     // Called from Swift: pass base64 encoded DFF bytes
     window.loadDFFFromBase64 = function(base64Str, fileName) {
       document.getElementById('loader').style.display = 'block';
@@ -258,22 +393,39 @@
             currentModelGroup = null;
           }
 
-          const clump = RenderWare.parseDFF(bytes.buffer);
-          if (!clump || !clump.group) {
-            throw new Error("RenderWare parseDFF natija bermadi");
+          const dff = new DFFModel();
+          dff.fileName = (fileName || "model").replace(/\.[^/.]+$/, "");
+          dff.parse(bytes.buffer);
+
+          currentModelGroup = buildThreeGroupFromDFF(dff);
+
+          // Compute realistic bounding box excluding far dummies
+          let meshesBox = new THREE.Box3();
+          let hasMeshes = false;
+          currentModelGroup.traverse(child => {
+            if (child.isMesh && child.geometry) {
+              child.geometry.computeBoundingBox();
+              const worldBox = child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld);
+              if (!hasMeshes) {
+                meshesBox.copy(worldBox);
+                hasMeshes = true;
+              } else {
+                meshesBox.union(worldBox);
+              }
+            }
+          });
+
+          if (!hasMeshes) {
+            meshesBox = new THREE.Box3().setFromObject(currentModelGroup);
           }
 
-          currentModelGroup = clump.group;
-
-          // Compute realistic bounding box
-          const box = new THREE.Box3().setFromObject(currentModelGroup);
-          const center = box.getCenter(new THREE.Vector3());
-          const size = box.getSize(new THREE.Vector3());
+          const center = meshesBox.getCenter(new THREE.Vector3());
+          const size = meshesBox.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z) || 1.0;
 
           // Center model on origin
           currentModelGroup.position.sub(center);
-          // Ground level
+          // Put on ground
           currentModelGroup.position.y += size.y / 2;
 
           scene.add(currentModelGroup);
@@ -282,7 +434,7 @@
           defaultCamDistance = maxDim * 1.8;
           camera.position.set(defaultCamDistance * 0.8, defaultCamDistance * 0.6, defaultCamDistance);
           camera.near = maxDim * 0.01;
-          camera.far = maxDim * 20;
+          camera.far = maxDim * 30;
           camera.updateProjectionMatrix();
 
           controls.target.set(0, size.y / 2, 0);
@@ -307,7 +459,7 @@
 
         } catch (err) {
           console.error("DFF yuklash xatosi:", err);
-          document.getElementById('loader').innerHTML = `<div style="color: #ff453a;">Modelni yuklab bo'lmadi:<br>${err.message}</div>`;
+          document.getElementById('loader').innerHTML = `<div style="color: #ff453a; padding: 20px;">Modelni yuklab bo'lmadi:<br><b>${err.message}</b></div>`;
         }
       }, 50);
     };

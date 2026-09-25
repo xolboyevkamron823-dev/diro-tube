@@ -330,11 +330,13 @@
         const unpackedMeshes = DFFModel.getGeometryTriangles(geom);
         let allIndices = [];
 
+        const matCount = (geom.materials && geom.materials.length > 0) ? geom.materials.length : 1;
         if (unpackedMeshes && unpackedMeshes.length > 0) {
           for (const sub of unpackedMeshes) {
             const start = allIndices.length;
             for (let k = 0; k < sub.indices.length; k++) allIndices.push(sub.indices[k]);
-            bufferGeom.addGroup(start, sub.indices.length, sub.matIndex);
+            const safeMatIdx = (sub.matIndex >= 0 && sub.matIndex < matCount) ? sub.matIndex : 0;
+            bufferGeom.addGroup(start, sub.indices.length, safeMatIdx);
           }
         }
 
@@ -346,7 +348,10 @@
         if (geom.materials && geom.materials.length > 0) {
           for (let m = 0; m < geom.materials.length; m++) {
             const mat = geom.materials[m];
-            const col = mat.color ? new THREE.Color(mat.color.r / 255, mat.color.g / 255, mat.color.b / 255) : new THREE.Color(0xb5bcc7);
+            let col = mat.color ? new THREE.Color(mat.color.r / 255, mat.color.g / 255, mat.color.b / 255) : new THREE.Color(0xb5bcc7);
+            if (col.r < 0.12 && col.g < 0.12 && col.b < 0.12) {
+              col = new THREE.Color(0x2d323b);
+            }
             const threeMat = new THREE.MeshStandardMaterial({
               color: col,
               roughness: 0.35,

@@ -108,6 +108,10 @@ function init() {
     dirLight2.position.set(-10, -10, -5);
     scene.add(dirLight2);
 
+    const headLight = new THREE.DirectionalLight(0xffffff, 0.65);
+    camera3D.add(headLight);
+    scene.add(camera3D);
+
     // 5. Grid Helper (XY Plane for Z-up)
     const grid = new THREE.GridHelper(20, 20, 0x3b82f6, 0x1e293b);
     grid.rotation.x = Math.PI / 2;
@@ -228,6 +232,58 @@ function onWindowResize() {
     updateActiveViewportBorder();
 }
 
+
+function getCarMeshesBoundingBox(root) {
+    const box = new THREE.Box3();
+    let hasMeshes = false;
+    if (root) {
+        root.traverse(child => {
+            if (child instanceof THREE.Mesh && !child.name.includes("__dummy_") && child.geometry && child.geometry.attributes.position && child.geometry.attributes.position.count > 0) {
+                child.geometry.computeBoundingBox();
+                if (child.geometry.boundingBox) {
+                    const b = child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld);
+                    box.union(b);
+                    hasMeshes = true;
+                }
+            }
+        });
+    }
+    if (!hasMeshes || box.isEmpty()) {
+        if (root) box.setFromObject(root);
+    }
+    return box;
+}
+
+function fitCameraToModel(targetObj = null) {
+    if (!currentRootGroup) return;
+    const objToFit = targetObj || currentRootGroup;
+    const box = (objToFit === currentRootGroup) ? getCarMeshesBoundingBox(currentRootGroup) : new THREE.Box3().setFromObject(objToFit);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 3.5);
+
+    updateOrthographicFrustums(maxDim);
+
+    orbitControls.target.copy(center);
+    camera3D.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.9);
+    camera3D.lookAt(center);
+    orbitControls.update();
+
+    cameraTop.position.set(center.x, center.y, center.z + maxDim * 2.5);
+    cameraTop.lookAt(center);
+    cameraTop.updateProjectionMatrix();
+
+    cameraFront.position.set(center.x, center.y + maxDim * 2.5, center.z);
+    cameraFront.lookAt(center);
+    cameraFront.updateProjectionMatrix();
+
+    cameraLeft.position.set(center.x - maxDim * 2.5, center.y, center.z);
+    cameraLeft.lookAt(center);
+    cameraLeft.updateProjectionMatrix();
+
+    showToast("🎯 Kamera mashinaga to'g'rilandi");
+}
+
 function updateOrthographicFrustums(dim) {
     const aspect = (window.innerWidth / 2) / (window.innerHeight / 2);
     const frustumSize = dim * 1.35;
@@ -331,6 +387,30 @@ function initEditHelpers() {
 
 function setEditLevel(level) {
     currentEditLevel = level;
+
+    // Ensure selectedMesh is resolved if selectedNode or car exists
+    if (!selectedMesh && selectedNode) {
+        selectedNode.traverse(c => {
+            if (!selectedMesh && c instanceof THREE.Mesh && !c.name.includes("__dummy_")) {
+                selectedMesh = c;
+            }
+        });
+    }
+    if (!selectedMesh && currentRootGroup) {
+        currentRootGroup.traverse(c => {
+            if (!selectedMesh && c instanceof THREE.Mesh && !c.name.includes("__dummy_")) {
+                selectedMesh = c;
+                let p = c;
+                while (p && p.parent !== currentRootGroup && p.parent !== scene) {
+                    if (p.userData && p.userData.frameIndex !== undefined) break;
+                    p = p.parent;
+                }
+                if (p && p.userData && p.userData.frameIndex !== undefined) {
+                    selectedNode = frameGroups[p.userData.frameIndex];
+                }
+            }
+        });
+    }
 
     document.querySelectorAll('.level-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.level) === level);
@@ -577,6 +657,21 @@ function setupRaycaster() {
             }
         } else if (currentEditLevel === 3) {
             // Polygon Selection
+            if (!selectedMesh) {
+                const allIntersects = raycaster.intersectObjects(currentRootGroup.children, true);
+                const hit = allIntersects.find(h => h.object instanceof THREE.Mesh && !h.object.name.includes("__dummy_"));
+                if (hit) {
+                    selectedMesh = hit.object;
+                    let p = hit.object;
+                    while (p && p.parent !== currentRootGroup && p.parent !== scene) {
+                        if (p.userData && p.userData.frameIndex !== undefined) break;
+                        p = p.parent;
+                    }
+                    if (p && p.userData && p.userData.frameIndex !== undefined) {
+                        selectNodeByIndex(p.userData.frameIndex, hit.object, false);
+                    }
+                }
+            }
             if (!selectedMesh) return;
             const intersects = raycaster.intersectObject(selectedMesh, false);
             if (intersects.length > 0) {
@@ -587,6 +682,22 @@ function setupRaycaster() {
             }
         } else if (currentEditLevel === 1) {
             // Vertex Selection
+            if (!selectedMesh) {
+                const allIntersects = raycaster.intersectObjects(currentRootGroup.children, true);
+                const hit = allIntersects.find(h => h.object instanceof THREE.Mesh && !h.object.name.includes("__dummy_"));
+                if (hit) {
+                    selectedMesh = hit.object;
+                    let p = hit.object;
+                    while (p && p.parent !== currentRootGroup && p.parent !== scene) {
+                        if (p.userData && p.userData.frameIndex !== undefined) break;
+                        p = p.parent;
+                    }
+                    if (p && p.userData && p.userData.frameIndex !== undefined) {
+                        selectNodeByIndex(p.userData.frameIndex, hit.object, false);
+                    }
+                    updateVertexPointsHelper();
+                }
+            }
             if (!selectedMesh) return;
             const posAttr = selectedMesh.geometry.attributes.position;
             const intersects = raycaster.intersectObject(selectedMesh, false);
@@ -984,35 +1095,26 @@ function buildThreeSceneFromDFF(dff) {
 
     scene.add(currentRootGroup);
 
-    // 5. Precisely frame all 4 cameras to the model bounding box
-    const box = new THREE.Box3().setFromObject(currentRootGroup);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z, 4);
+    // 5. Precisely frame all 4 cameras to the model mesh bounding box
+    fitCameraToModel();
 
-    // Update Orthographic Frustums
-    updateOrthographicFrustums(maxDim);
-
-    // Camera Top: straight down onto the roof
-    cameraTop.position.set(center.x, center.y, center.z + maxDim * 2.5);
-    cameraTop.lookAt(center);
-    cameraTop.updateProjectionMatrix();
-
-    // Camera Front: looking straight at the front bumper (+Y forward)
-    cameraFront.position.set(center.x, center.y + maxDim * 2.5, center.z);
-    cameraFront.lookAt(center);
-    cameraFront.updateProjectionMatrix();
-
-    // Camera Left: looking straight at the driver side profile (-X)
-    cameraLeft.position.set(center.x - maxDim * 2.5, center.y, center.z);
-    cameraLeft.lookAt(center);
-    cameraLeft.updateProjectionMatrix();
-
-    // Camera 3D: 3D perspective angled view
-    camera3D.position.set(center.x - maxDim * 1.5, center.y - maxDim * 1.5, center.z + maxDim * 0.8);
-    camera3D.lookAt(center);
-    orbitControls.target.copy(center);
-    orbitControls.update();
+    // Auto-select primary car mesh (e.g. chassis)
+    let autoIndex = -1;
+    for (let i = 0; i < frameGroups.length; i++) {
+        let hasM = false;
+        frameGroups[i].traverse(c => {
+            if (!hasM && c instanceof THREE.Mesh && !c.name.includes("__dummy_")) hasM = true;
+        });
+        if (hasM) {
+            if (frameGroups[i].name.toLowerCase().includes("chassis") || autoIndex === -1) {
+                autoIndex = i;
+                if (frameGroups[i].name.toLowerCase().includes("chassis")) break;
+            }
+        }
+    }
+    if (autoIndex >= 0) {
+        selectNodeByIndex(autoIndex, null, false);
+    }
 
     // Clean initial state: Ensure 1-View full screen mode by default (No Quad overlays!)
     isQuadMode = false;
@@ -1679,7 +1781,9 @@ function setupUIEvents() {
     document.getElementById('btn-toggle-shader').addEventListener('click', toggleShaderMode);
     document.getElementById('btn-toggle-uv').addEventListener('click', toggleUVFlip);
 
-    document.getElementById('btn-reset-cam').addEventListener('click', () => {
+    document.getElementById('btn-reset-cam').addEventListener('click', () => fitCameraToModel());
+    addSafeListener('btn-top-fit-cam', 'click', () => fitCameraToModel());
+    const oldResetCamHandler = (() => {
         if (currentRootGroup) {
             const box = new THREE.Box3().setFromObject(currentRootGroup);
             const center = box.getCenter(new THREE.Vector3());
@@ -1992,7 +2096,11 @@ function selectNodeByIndex(index, specificMesh = null, openDrawer = false) {
     }
 
     if (!specificMesh) {
-        specificMesh = grp.children.find(c => c instanceof THREE.Mesh && !c.name.includes("__dummy_"));
+        grp.traverse(c => {
+            if (!specificMesh && c instanceof THREE.Mesh && !c.name.includes("__dummy_")) {
+                specificMesh = c;
+            }
+        });
     }
     selectedMesh = specificMesh;
 
@@ -2402,6 +2510,7 @@ function applyTextureMapToScene() {
                     }
                     if (matched) {
                         m.map = matched;
+                        m.color.setHex(0xffffff);
                         m.needsUpdate = true;
                         count++;
                     }

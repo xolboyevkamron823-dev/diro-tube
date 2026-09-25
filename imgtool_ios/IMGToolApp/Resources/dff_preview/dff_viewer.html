@@ -367,12 +367,14 @@
           threeMaterials.push(defMat);
         }
 
-        const frameName = (targetGroup.name || "").toLowerCase();
+        const frameName = (targetGroup.name || "").toLowerCase().trim();
+        // Hide only low LOD (_vlo), damaged parts (_dam), and collision/shadows
+        // Never hide dummies (bones/containers) or valid weapon parts like colt45
         const isHidden = frameName.includes("_vlo") || 
                          frameName.includes("_dam") || 
-                         frameName.includes("col") || 
-                         frameName.includes("dummy") || 
-                         frameName.includes("shadow");
+                         frameName.includes("shadow") || 
+                         frameName.includes("collision") || 
+                         (frameName === "col" || frameName.startsWith("col_") || frameName.endsWith("_col") || frameName.includes("_col_"));
 
         const mesh = new THREE.Mesh(bufferGeom, threeMaterials.length === 1 ? threeMaterials[0] : threeMaterials);
         mesh.name = targetGroup.name || "part";

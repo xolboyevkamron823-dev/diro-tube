@@ -115,7 +115,7 @@ struct EntryRowView: View {
                     
                     Divider()
                     
-                    Button(role: .destructive, action: {
+                    Button(action: {
                         onDelete(entry)
                     }) {
                         Label("O'chirish (Delete)", systemImage: "trash.fill")

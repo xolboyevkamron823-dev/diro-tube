@@ -126,12 +126,16 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "openDocumentPicker" {
             let mode = (message.body as? [String: Any])?["mode"] as? String ?? "open"
-            openDocumentPicker(mode: mode)
+            DispatchQueue.main.async { [weak self] in
+                self?.openDocumentPicker(mode: mode)
+            }
         } else if message.name == "exportDFF" {
             guard let dict = message.body as? [String: Any],
                   let base64 = dict["base64Data"] as? String,
                   let fileName = dict["fileName"] as? String else { return }
-            exportDFFFile(base64: base64, fileName: fileName)
+            DispatchQueue.main.async { [weak self] in
+                self?.exportDFFFile(base64: base64, fileName: fileName)
+            }
         }
     }
 
@@ -166,6 +170,7 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         }
         picker.delegate = self
         picker.allowsMultipleSelection = true
+        picker.modalPresentationStyle = .formSheet
         present(picker, animated: true)
     }
 
@@ -183,22 +188,7 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
         }
 
         for selectedUrl in sortedUrls {
-            let needSecurityScope = selectedUrl.startAccessingSecurityScopedResource()
-            defer {
-                if needSecurityScope {
-                    selectedUrl.stopAccessingSecurityScopedResource()
-                }
-            }
-            do {
-                let data = try Data(contentsOf: selectedUrl)
-                let base64 = data.base64EncodedString()
-                let fileName = selectedUrl.lastPathComponent
-
-                let js = "window.onNativeFileOpened('\(base64)', '\(fileName)', '\(self.currentPickerMode)');"
-                webView.evaluateJavaScript(js, completionHandler: nil)
-            } catch {
-                print("Error reading \(selectedUrl): \(error)")
-            }
+            sendFileToWebView(url: selectedUrl, mode: self.currentPickerMode)
         }
 
         let generator = UIImpactFeedbackGenerator(style: .medium)
@@ -207,6 +197,11 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
 
     // Handle incoming URL from AirDrop / Files app / Telegram "Open in"
     func handleIncomingURL(_ url: URL) {
+        let mode = url.pathExtension.lowercased() == "txd" ? "txd" : "open"
+        sendFileToWebView(url: url, mode: mode)
+    }
+
+    private func sendFileToWebView(url: URL, mode: String) {
         let needSecurityScope = url.startAccessingSecurityScopedResource()
         defer {
             if needSecurityScope {
@@ -217,11 +212,71 @@ class ViewController: UIViewController, WKScriptMessageHandler, UIDocumentPicker
             let data = try Data(contentsOf: url)
             let base64 = data.base64EncodedString()
             let fileName = url.lastPathComponent
-            let mode = url.pathExtension.lowercased() == "txd" ? "txd" : "open"
-            let js = "window.onNativeFileOpened('\(base64)', '\(fileName)', '\(mode)');"
-            webView.evaluateJavaScript(js, completionHandler: nil)
+
+            if base64.count < 3 * 1024 * 1024 {
+                // Direct transfer for smaller files
+                let payload: [String: String] = [
+                    "data": base64,
+                    "fileName": fileName,
+                    "mode": mode
+                ]
+                if let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+                   let jsonStr = String(data: jsonData, encoding: .utf8) {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.webView.evaluateJavaScript("window.onNativeFileJson(\(jsonStr));", completionHandler: nil)
+                    }
+                }
+            } else {
+                // Chunked transfer for large 34MB+ models to prevent WebKit IPC overflow
+                let chunkSize = 512 * 1024 // 512KB per chunk
+                let totalLength = base64.count
+                let totalChunks = Int(ceil(Double(totalLength) / Double(chunkSize)))
+
+                let initPayload: [String: Any] = [
+                    "fileName": fileName,
+                    "mode": mode,
+                    "totalChunks": totalChunks
+                ]
+                if let initData = try? JSONSerialization.data(withJSONObject: initPayload),
+                   let initJsonStr = String(data: initData, encoding: .utf8) {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.webView.evaluateJavaScript("window.initNativeFileTransfer(\(initJsonStr));") { [weak self] _, _ in
+                            self?.sendChunks(base64: base64, chunkSize: chunkSize, offset: 0, chunkIndex: 0)
+                        }
+                    }
+                }
+            }
         } catch {
-            print("Error reading incoming file: \(error)")
+            print("Error reading \(url): \(error)")
+        }
+    }
+
+    private func sendChunks(base64: String, chunkSize: Int, offset: Int, chunkIndex: Int) {
+        let totalLength = base64.count
+        if offset >= totalLength {
+            DispatchQueue.main.async { [weak self] in
+                self?.webView.evaluateJavaScript("window.finishNativeFileTransfer();", completionHandler: nil)
+            }
+            return
+        }
+
+        let start = base64.index(base64.startIndex, offsetBy: offset)
+        let nextOffset = min(offset + chunkSize, totalLength)
+        let end = base64.index(base64.startIndex, offsetBy: nextOffset)
+        let chunk = String(base64[start..<end])
+
+        let chunkPayload: [String: Any] = ["chunk": chunk, "index": chunkIndex]
+        if let chunkData = try? JSONSerialization.data(withJSONObject: chunkPayload),
+           let chunkJsonStr = String(data: chunkData, encoding: .utf8) {
+            DispatchQueue.main.async { [weak self] in
+                self?.webView.evaluateJavaScript("window.appendNativeFileChunk(\(chunkJsonStr));") { [weak self] _, error in
+                    if error == nil {
+                        self?.sendChunks(base64: base64, chunkSize: chunkSize, offset: nextOffset, chunkIndex: chunkIndex + 1)
+                    } else {
+                        print("Error sending chunk \(chunkIndex): \(String(describing: error))")
+                    }
+                }
+            }
         }
     }
 

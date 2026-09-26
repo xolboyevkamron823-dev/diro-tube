@@ -51,7 +51,7 @@ public struct PVRDatabasePickerSheet: View {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Image(systemName: "folder.fill.badge.gearshape")
-                                    .foregroundColor(.cyan)
+                                    .foregroundColor(.appCyan)
                                 Text("1-USUL: Papkani Tanlash (Eng Oson)")
                                     .font(.system(size: 14, weight: .bold))
                                     .foregroundColor(.white)
@@ -205,7 +205,7 @@ public struct PVRDatabasePickerSheet: View {
                                 .font(.system(size: 14, weight: .bold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
-                                .background(canOpenManual ? Color.cyan : Color.gray.opacity(0.3))
+                                .background(canOpenManual ? Color.appCyan : Color.gray.opacity(0.3))
                                 .foregroundColor(canOpenManual ? .black : .gray)
                                 .cornerRadius(10)
                             }

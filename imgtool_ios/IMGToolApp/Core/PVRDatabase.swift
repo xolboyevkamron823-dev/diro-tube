@@ -421,11 +421,6 @@ public class PVRDatabase: ObservableObject {
     public func deleteTexture(entry: PVRTextureEntry) {
         guard let idx = entries.firstIndex(where: { $0.id == entry.id }) else { return }
         entries.remove(at: idx)
-        
-        // Re-index entries
-        for i in 0..<entries.count {
-            // Just update entry index if needed
-        }
         objectWillChange.send()
     }
     

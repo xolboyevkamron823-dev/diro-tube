@@ -4,13 +4,186 @@ import CoreGraphics
 
 public final class PVRTCDecompressor {
     
-    private struct AMTCBlock {
-        var modBits: UInt32
-        var colBits: UInt32
+    @inline(__always)
+    private static func shiftl16(_ x: inout UInt16, _ n: Int) -> UInt8 {
+        let res = UInt8((x >> (16 - n)) & 0xFF)
+        x = (x << n) & 0xFFFF
+        return res
     }
     
+    @inline(__always)
+    private static func replicateTopBit(_ x: UInt8) -> UInt8 {
+        return (x | (x >> 4)) & 0xFF
+    }
+    
+    private static func unpack5554Colour(_ packedCol: UInt32, _ abColours: inout [[Int]]) {
+        var rawBits: [UInt16] = [
+            UInt16(packedCol & 0xFFFE),
+            UInt16((packedCol >> 16) & 0xFFFF)
+        ]
+        
+        for i in 0..<2 {
+            var rawPixel = rawBits[i]
+            let isOpaque = shiftl16(&rawPixel, 1)
+            
+            if isOpaque != 0 {
+                let r = Int(shiftl16(&rawPixel, 5))
+                let g = Int(shiftl16(&rawPixel, 5))
+                let bShift = shiftl16(&rawPixel, 5)
+                let b = Int((i == 0) ? replicateTopBit(bShift) : bShift)
+                abColours[i] = [r, g, b, 0x0F]
+            } else {
+                var a = Int(shiftl16(&rawPixel, 3)) << 1
+                var r = Int(replicateTopBit(shiftl16(&rawPixel, 4) << 1))
+                var g = Int(replicateTopBit(shiftl16(&rawPixel, 4) << 1))
+                var b = Int(shiftl16(&rawPixel, 4) << 1)
+                if i == 0 {
+                    b |= (b >> 3)
+                } else {
+                    b = Int(replicateTopBit(UInt8(b & 0xFF)))
+                }
+                abColours[i] = [r, g, b, a]
+            }
+        }
+    }
+    
+    private static func unpackModulations(
+        packedMod: UInt32,
+        packedCol: UInt32,
+        is2BPP: Bool,
+        startX: Int,
+        startY: Int,
+        modVals: inout [[Int]],
+        modModes: inout [[Int]]
+    ) {
+        let blockModMode = Int(packedCol & 1)
+        var modBits = packedMod
+        
+        if is2BPP && blockModMode != 0 {
+            for y in 0..<4 {
+                for x in 0..<8 {
+                    modModes[y + startY][x + startX] = blockModMode
+                    if ((x ^ y) & 1) == 0 {
+                        modVals[y + startY][x + startX] = Int(modBits & 3)
+                        modBits >>= 2
+                    }
+                }
+            }
+        } else if is2BPP {
+            for y in 0..<4 {
+                for x in 0..<8 {
+                    modModes[y + startY][x + startX] = blockModMode
+                    modVals[y + startY][x + startX] = (modBits & 1) != 0 ? 0x3 : 0x0
+                    modBits >>= 1
+                }
+            }
+        } else {
+            for y in 0..<4 {
+                for x in 0..<4 {
+                    modModes[y + startY][x + startX] = blockModMode
+                    modVals[y + startY][x + startX] = Int(modBits & 3)
+                    modBits >>= 2
+                }
+            }
+        }
+    }
+    
+    @inline(__always)
+    private static func interpolateColours(
+        _ cP: [Int],
+        _ cQ: [Int],
+        _ cR: [Int],
+        _ cS: [Int],
+        is2BPP: Bool,
+        x: Int,
+        y: Int,
+        result: inout [Int]
+    ) {
+        var v = (y & 0x3) | ((~y & 0x2) << 1)
+        var u: Int
+        var uscale: Int
+        
+        if is2BPP {
+            u = (x & 0x7) | ((~x & 0x4) << 1)
+            u -= 4 // BLK_X_2BPP / 2
+            uscale = 8
+        } else {
+            u = (x & 0x3) | ((~x & 0x2) << 1)
+            u -= 2 // BLK_X_4BPP / 2
+            uscale = 4
+        }
+        v -= 2 // BLK_Y_SIZE / 2
+        
+        for k in 0..<4 {
+            let tmp1 = cP[k] * uscale + u * (cQ[k] - cP[k])
+            let tmp2 = cR[k] * uscale + u * (cS[k] - cR[k])
+            result[k] = tmp1 * 4 + v * (tmp2 - tmp1)
+        }
+        
+        if is2BPP {
+            result[0] >>= 2
+            result[1] >>= 2
+            result[2] >>= 2
+            result[3] >>= 1
+        } else {
+            result[0] >>= 1
+            result[1] >>= 1
+            result[2] >>= 1
+        }
+        
+        // 5554 to 8888 conversion
+        result[0] += result[0] >> 5
+        result[1] += result[1] >> 5
+        result[2] += result[2] >> 5
+        result[3] += result[3] >> 4
+    }
+    
+    @inline(__always)
+    private static func getModulationValue(
+        x: Int,
+        y: Int,
+        is2BPP: Bool,
+        modVals: [[Int]],
+        modModes: [[Int]],
+        doPT: inout Bool
+    ) -> Int {
+        let rep0: [Int] = [0, 3, 5, 8]
+        let rep1: [Int] = [0, 4, 4, 8]
+        
+        let localY = (y & 0x3) | ((~y & 0x2) << 1)
+        let localX = is2BPP ? ((x & 0x7) | ((~x & 0x4) << 1)) : ((x & 0x3) | ((~x & 0x2) << 1))
+        
+        let mode = modModes[localY][localX]
+        let val = modVals[localY][localX]
+        
+        if mode == 0 {
+            doPT = false
+            return rep0[val]
+        } else if is2BPP {
+            doPT = false
+            if ((localX ^ localY) & 1) == 0 {
+                return rep0[val]
+            } else if mode == 1 {
+                return (rep0[modVals[localY - 1][localX]] +
+                        rep0[modVals[localY + 1][localX]] +
+                        rep0[modVals[localY][localX - 1]] +
+                        rep0[modVals[localY][localX + 1]] + 2) / 4
+            } else if mode == 2 {
+                return (rep0[modVals[localY][localX - 1]] +
+                        rep0[modVals[localY][localX + 1]] + 1) / 2
+            } else {
+                return (rep0[modVals[localY - 1][localX]] +
+                        rep0[modVals[localY + 1][localX]] + 1) / 2
+            }
+        } else {
+            doPT = (val == 2)
+            return rep1[val]
+        }
+    }
+    
+    @inline(__always)
     private static func twiddleUV(ySize: UInt32, xSize: UInt32, yPos: UInt32, xPos: UInt32) -> UInt32 {
-        let minDimension = min(ySize, xSize)
+        let minDimension = (ySize < xSize) ? ySize : xSize
         var maxValue = (ySize < xSize) ? xPos : yPos
         var srcBitPos: UInt32 = 1
         var dstBitPos: UInt32 = 1
@@ -29,147 +202,137 @@ public final class PVRTCDecompressor {
         return twiddled
     }
     
-    private static func unpackColor(packed: UInt32, colors: inout [[Int]]) {
-        let rawBits: [UInt16] = [
-            UInt16(packed & 0xFFFE),
-            UInt16(packed >> 16)
-        ]
-        
-        for i in 0..<2 {
-            var raw = rawBits[i]
-            let isOpaque = (raw >> 15) & 1
-            raw <<= 1
-            
-            if isOpaque != 0 {
-                let r = Int(raw >> 11) & 0x1F
-                let g = Int(raw >> 6) & 0x1F
-                let b = Int(raw >> 1) & 0x1F
-                // Scale 5-bit to 8-bit
-                colors[i][0] = (r << 3) | (r >> 2)
-                colors[i][1] = (g << 3) | (g >> 2)
-                colors[i][2] = (b << 3) | (b >> 2)
-                colors[i][3] = 255
-            } else {
-                let a = Int(raw >> 12) & 0x07
-                let r = Int(raw >> 8) & 0x0F
-                let g = Int(raw >> 4) & 0x0F
-                let b = Int(raw) & 0x0F
-                // Scale 4-bit/3-bit to 8-bit
-                colors[i][0] = (r << 4) | r
-                colors[i][1] = (g << 4) | g
-                colors[i][2] = (b << 4) | b
-                colors[i][3] = (a << 5) | (a << 2) | (a >> 1)
-            }
-        }
-    }
-    
     public static func decompress(data: Data, width: Int, height: Int, is2BPP: Bool) -> UIImage? {
         guard width > 0 && height > 0 else { return nil }
         
-        let blockXSize = is2BPP ? 8 : 4
-        let blockYSize = 4
-        let blkXDim = max(2, width / blockXSize)
-        let blkYDim = max(2, height / blockYSize)
+        let blkXSize = is2BPP ? 8 : 4
+        let blkYSize = 4
+        let blkXDim = max(2, width / blkXSize)
+        let blkYDim = max(2, height / blkYSize)
         
         let totalBlocks = blkXDim * blkYDim
         let expectedBytes = totalBlocks * 8
         guard data.count >= expectedBytes else { return nil }
         
-        var blocks = [AMTCBlock](repeating: AMTCBlock(modBits: 0, colBits: 0), count: totalBlocks)
-        data.withUnsafeBytes { rawPtr in
-            let u32Ptr = rawPtr.bindMemory(to: UInt32.self)
-            for i in 0..<totalBlocks {
-                blocks[i] = AMTCBlock(modBits: u32Ptr[i * 2], colBits: u32Ptr[i * 2 + 1])
-            }
+        var words = [UInt32](repeating: 0, count: totalBlocks * 2)
+        _ = words.withUnsafeMutableBytes { outBuf in
+            data.copyBytes(to: outBuf, count: expectedBytes)
         }
         
-        var rgba = [UInt8](repeating: 255, count: width * height * 4)
+        var outPixels = [UInt8](repeating: 255, count: width * height * 4)
         
-        // Cache unpacked colors per block to avoid re-unpacking
-        var blockColors = [[[Int]]](repeating: [[Int]](repeating: [0, 0, 0, 255], count: 2), count: totalBlocks)
-        for i in 0..<totalBlocks {
-            unpackColor(packed: blocks[i].colBits, colors: &blockColors[i])
-        }
+        var prevBlocks: (Int, Int, Int, Int)? = nil
+        var colours5554 = [[[Int]]](repeating: [[Int]](repeating: [0, 0, 0, 0], count: 2), count: 4)
+        var modVals = [[Int]](repeating: [Int](repeating: 0, count: 16), count: 8)
+        var modModes = [[Int]](repeating: [Int](repeating: 0, count: 16), count: 8)
         
-        let modWeights: [[Double]] = [
-            [1.0, 0.0],           // 0: 8/8 A, 0/8 B
-            [5.0 / 8.0, 3.0 / 8.0], // 1: 5/8 A, 3/8 B
-            [3.0 / 8.0, 5.0 / 8.0], // 2: 3/8 A, 5/8 B
-            [0.0, 1.0]            // 3: 0/8 A, 8/8 B
-        ]
+        var colA = [Int](repeating: 0, count: 4)
+        var colB = [Int](repeating: 0, count: 4)
+        var tempAB = [[Int]](repeating: [0, 0, 0, 0], count: 2)
         
-        for y in 0..<height {
-            let by0 = ((y - blockYSize / 2) + height) % height / blockYSize
-            let by1 = (by0 + 1) % blkYDim
-            let v = (Double(y % blockYSize) + 0.5) / Double(blockYSize)
-            
-            for x in 0..<width {
-                let bx0 = ((x - blockXSize / 2) + width) % width / blockXSize
-                let bx1 = (bx0 + 1) % blkXDim
-                let u = (Double(x % blockXSize) + 0.5) / Double(blockXSize)
+        outPixels.withUnsafeMutableBufferPointer { outPtr in
+            for y in 0..<height {
+                var blkY = (y - blkYSize / 2) % height
+                if blkY < 0 { blkY += height }
+                blkY /= blkYSize
+                let blkYp1 = (blkY + 1) % blkYDim
                 
-                // Get 4 block twiddled indices
-                let idx00 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(by0), xPos: UInt32(bx0)))
-                let idx01 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(by0), xPos: UInt32(bx1)))
-                let idx10 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(by1), xPos: UInt32(bx0)))
-                let idx11 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(by1), xPos: UInt32(bx1)))
-                
-                // Bilinear interpolation weights
-                let w00 = (1.0 - u) * (1.0 - v)
-                let w01 = u * (1.0 - v)
-                let w10 = (1.0 - u) * v
-                let w11 = u * v
-                
-                // Interpolated Color A
-                let colA00 = blockColors[idx00][0]
-                let colA01 = blockColors[idx01][0]
-                let colA10 = blockColors[idx10][0]
-                let colA11 = blockColors[idx11][0]
-                
-                let aR = Double(colA00[0]) * w00 + Double(colA01[0]) * w01 + Double(colA10[0]) * w10 + Double(colA11[0]) * w11
-                let aG = Double(colA00[1]) * w00 + Double(colA01[1]) * w01 + Double(colA10[1]) * w10 + Double(colA11[1]) * w11
-                let aB = Double(colA00[2]) * w00 + Double(colA01[2]) * w01 + Double(colA10[2]) * w10 + Double(colA11[2]) * w11
-                let aA = Double(colA00[3]) * w00 + Double(colA01[3]) * w01 + Double(colA10[3]) * w10 + Double(colA11[3]) * w11
-                
-                // Interpolated Color B
-                let colB00 = blockColors[idx00][1]
-                let colB01 = blockColors[idx01][1]
-                let colB10 = blockColors[idx10][1]
-                let colB11 = blockColors[idx11][1]
-                
-                let bR = Double(colB00[0]) * w00 + Double(colB01[0]) * w01 + Double(colB10[0]) * w10 + Double(colB11[0]) * w11
-                let bG = Double(colB00[1]) * w00 + Double(colB01[1]) * w01 + Double(colB10[1]) * w10 + Double(colB11[1]) * w11
-                let bB = Double(colB00[2]) * w00 + Double(colB01[2]) * w01 + Double(colB10[2]) * w10 + Double(colB11[2]) * w11
-                let bA = Double(colB00[3]) * w00 + Double(colB01[3]) * w01 + Double(colB10[3]) * w10 + Double(colB11[3]) * w11
-                
-                // Get modulation index for pixel from parent block
-                let currBx = x / blockXSize
-                let currBy = y / blockYSize
-                let currIdx = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(currBy), xPos: UInt32(currBx)))
-                let modBits = blocks[currIdx].modBits
-                
-                let localX = x % blockXSize
-                let localY = y % blockYSize
-                let bitShift = (localY * blockXSize + localX) * (is2BPP ? 1 : 2)
-                let modIndex = is2BPP ? ((Int(modBits >> bitShift) & 1) != 0 ? 3 : 0) : (Int(modBits >> bitShift) & 3)
-                
-                let weights = modWeights[modIndex]
-                let r = UInt8(clamping: Int(aR * weights[0] + bR * weights[1]))
-                let g = UInt8(clamping: Int(aG * weights[0] + bG * weights[1]))
-                let b = UInt8(clamping: Int(aB * weights[0] + bB * weights[1]))
-                let a = UInt8(clamping: Int(aA * weights[0] + bA * weights[1]))
-                
-                let pixelOffset = (y * width + x) * 4
-                rgba[pixelOffset] = r
-                rgba[pixelOffset + 1] = g
-                rgba[pixelOffset + 2] = b
-                rgba[pixelOffset + 3] = a
+                for x in 0..<width {
+                    var blkX = (x - blkXSize / 2) % width
+                    if blkX < 0 { blkX += width }
+                    blkX /= blkXSize
+                    let blkXp1 = (blkX + 1) % blkXDim
+                    
+                    let idx00 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(blkY), xPos: UInt32(blkX)))
+                    let idx01 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(blkY), xPos: UInt32(blkXp1)))
+                    let idx10 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(blkYp1), xPos: UInt32(blkX)))
+                    let idx11 = Int(twiddleUV(ySize: UInt32(blkYDim), xSize: UInt32(blkXDim), yPos: UInt32(blkYp1), xPos: UInt32(blkXp1)))
+                    
+                    let needsUpdate: Bool
+                    if let prev = prevBlocks {
+                        needsUpdate = (prev.0 != idx00 || prev.1 != idx01 || prev.2 != idx10 || prev.3 != idx11)
+                    } else {
+                        needsUpdate = true
+                    }
+                    
+                    if needsUpdate {
+                        let quadIndices = [idx00, idx01, idx10, idx11]
+                        var startY = 0
+                        for row in 0..<2 {
+                            var startX = 0
+                            for col in 0..<2 {
+                                let blkIdx = quadIndices[row * 2 + col]
+                                let pMod = words[blkIdx * 2]
+                                let pCol = words[blkIdx * 2 + 1]
+                                
+                                unpack5554Colour(pCol, &tempAB)
+                                colours5554[row * 2 + col] = tempAB
+                                
+                                unpackModulations(
+                                    packedMod: pMod,
+                                    packedCol: pCol,
+                                    is2BPP: is2BPP,
+                                    startX: startX,
+                                    startY: startY,
+                                    modVals: &modVals,
+                                    modModes: &modModes
+                                )
+                                startX += blkXSize
+                            }
+                            startY += blkYSize
+                        }
+                        prevBlocks = (idx00, idx01, idx10, idx11)
+                    }
+                    
+                    interpolateColours(
+                        colours5554[0][0],
+                        colours5554[1][0],
+                        colours5554[2][0],
+                        colours5554[3][0],
+                        is2BPP: is2BPP,
+                        x: x,
+                        y: y,
+                        result: &colA
+                    )
+                    
+                    interpolateColours(
+                        colours5554[0][1],
+                        colours5554[1][1],
+                        colours5554[2][1],
+                        colours5554[3][1],
+                        is2BPP: is2BPP,
+                        x: x,
+                        y: y,
+                        result: &colB
+                    )
+                    
+                    var doPT = false
+                    let mod = getModulationValue(
+                        x: x,
+                        y: y,
+                        is2BPP: is2BPP,
+                        modVals: modVals,
+                        modModes: modModes,
+                        doPT: &doPT
+                    )
+                    
+                    let r = colA[0] + ((mod * (colB[0] - colA[0])) >> 3)
+                    let g = colA[1] + ((mod * (colB[1] - colA[1])) >> 3)
+                    let b = colA[2] + ((mod * (colB[2] - colA[2])) >> 3)
+                    let a = doPT ? 0 : (colA[3] + ((mod * (colB[3] - colA[3])) >> 3))
+                    
+                    let pos = (y * width + x) * 4
+                    outPtr[pos + 0] = UInt8(clamping: r)
+                    outPtr[pos + 1] = UInt8(clamping: g)
+                    outPtr[pos + 2] = UInt8(clamping: b)
+                    outPtr[pos + 3] = UInt8(clamping: a)
+                }
             }
         }
         
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        guard let provider = CGDataProvider(data: Data(rgba) as CFData),
+        guard let provider = CGDataProvider(data: Data(outPixels) as CFData),
               let cgImage = CGImage(
                 width: width,
                 height: height,

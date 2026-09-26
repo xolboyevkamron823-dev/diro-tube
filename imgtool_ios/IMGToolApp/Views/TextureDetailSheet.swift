@@ -139,7 +139,7 @@ public struct TextureDetailSheet: View {
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
                                         .background(Color(red: 0.14, green: 0.18, blue: 0.24))
-                                        .foregroundColor(.cyan)
+                                        .foregroundColor(.appCyan)
                                         .cornerRadius(8)
                                     }
                                     

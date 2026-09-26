@@ -347,6 +347,13 @@ public class PVRDatabase: ObservableObject {
                                    mFmt.numberOfRanges > 1 {
                                     let fmtVal = nsLine.substring(with: mFmt.range(at: 1))
                                     format = (fmtVal == "3" || fmtVal == "6") ? .pvrtc4bpp : .pvrtc2bpp
+                                } else if hasSz && sz >= 16 {
+                                    let payloadBytes = Int(sz - 16)
+                                    if payloadBytes >= (w * h) / 2 {
+                                        format = .pvrtc4bpp
+                                    } else {
+                                        format = .pvrtc2bpp
+                                    }
                                 }
                             } else {
                                 lineStr = "\"\(texName)\""
@@ -363,7 +370,13 @@ public class PVRDatabase: ObservableObject {
                                         h = Int(h16 & 0x7FFF)
                                         if sz == 0 { sz = cSz }
                                         let payloadBytes = (sz >= 16) ? (sz - 16) : 0
-                                        format = (Int(payloadBytes) > (w * h) / 3) ? .pvrtc4bpp : .pvrtc2bpp
+                                        if (val0 >> 16) == 0x8C02 {
+                                            format = .pvrtc4bpp
+                                        } else if (val0 >> 16) == 0x8C01 {
+                                            format = .pvrtc2bpp
+                                        } else {
+                                            format = (Int(payloadBytes) >= (w * h) / 2) ? .pvrtc4bpp : .pvrtc2bpp
+                                        }
                                     }
                                 }
                             }
@@ -455,7 +468,22 @@ public class PVRDatabase: ObservableObject {
                 return
             }
             
-            let is2BPP = (entry.format == .pvrtc2bpp)
+            let v0 = chunk.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self) }
+            let is4BPPByHeader = ((v0 >> 16) == 0x8C02)
+            let is2BPPByHeader = ((v0 >> 16) == 0x8C01)
+            
+            let payloadBytes = chunk.count - 16
+            let is2BPP: Bool
+            if is4BPPByHeader {
+                is2BPP = false
+            } else if is2BPPByHeader {
+                is2BPP = true
+            } else if payloadBytes >= (entry.width * entry.height) / 2 {
+                is2BPP = false
+            } else {
+                is2BPP = (entry.format == .pvrtc2bpp)
+            }
+            
             let payload = chunk.subdata(in: 16..<chunk.count)
             let mainMipBytes = max(32, (entry.width * entry.height) / (is2BPP ? 4 : 2))
             

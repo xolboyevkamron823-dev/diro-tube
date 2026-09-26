@@ -78,7 +78,7 @@ public struct AddTextureSheet: View {
                                 VStack(spacing: 14) {
                                     Image(systemName: "square.and.arrow.down.on.square")
                                         .font(.system(size: 40))
-                                        .foregroundColor(.cyan)
+                                        .foregroundColor(.appCyan)
                                     
                                     Text("Rasm faylini tanlang (PNG yoki JPG)")
                                         .font(.system(size: 15, weight: .bold))

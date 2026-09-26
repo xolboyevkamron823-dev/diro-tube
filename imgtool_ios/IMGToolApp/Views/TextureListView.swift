@@ -8,7 +8,7 @@ public struct TextureListView: View {
     @State private var searchText: String = ""
     @State private var selectedCategory: String = "Barchasi"
     
-    @State private var showOpenDatPicker: Bool = false
+    @State private var showDatabasePicker: Bool = false
     @State private var showAddTextureSheet: Bool = false
     @State private var selectedEntry: PVRTextureEntry? = nil
     
@@ -81,11 +81,11 @@ public struct TextureListView: View {
                     
                     Spacer()
                     
-                    // Open PVR.DAT button
-                    Button(action: { showOpenDatPicker = true }) {
+                    // Open PVR Baza button
+                    Button(action: { showDatabasePicker = true }) {
                         HStack(spacing: 5) {
-                            Image(systemName: "folder")
-                            Text("Ochish")
+                            Image(systemName: "folder.badge.gearshape")
+                            Text("Baza Ochish")
                         }
                         .font(.system(size: 12, weight: .bold))
                         .padding(.horizontal, 10)
@@ -124,6 +124,36 @@ public struct TextureListView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 10)
                 .background(Color(red: 0.1, green: 0.12, blue: 0.16))
+                
+                // Error Banner
+                if let err = database.errorMessage {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.yellow)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Xatolik:")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                            Text(err)
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.9))
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: { database.errorMessage = nil }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.white.opacity(0.6))
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.red.opacity(0.85))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                }
                 
                 if database.isLoaded {
                     // Search Bar
@@ -193,7 +223,7 @@ public struct TextureListView: View {
                             }
                             .padding(.horizontal)
                             .padding(.vertical, 6)
-                            .padding(.bottom, 80) // Leave space for Floating Action Button
+                            .padding(.bottom, 80)
                         }
                     }
                 } else if database.isLoading {
@@ -225,16 +255,16 @@ public struct TextureListView: View {
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(.white)
                         
-                        Text("iPhone Files ilovasi yoki GTA SA Documents papkasidagi gta3.pvr.dat (yoki .toc) faylini tanlang.")
+                        Text("Teksturalarni ko'rish va yangisini qo'shish uchun gta3.pvr.dat va uning gta3.pvr.toc faylini tanlang.")
                             .font(.system(size: 13))
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                         
-                        Button(action: { showOpenDatPicker = true }) {
+                        Button(action: { showDatabasePicker = true }) {
                             HStack {
-                                Image(systemName: "doc.badge.plus")
-                                Text("gta3.pvr.dat Faylini Ochish")
+                                Image(systemName: "folder.badge.gearshape")
+                                Text("PVR Bazani Tanlash (DAT + TOC)")
                             }
                             .font(.system(size: 14, weight: .bold))
                             .padding(.horizontal, 20)
@@ -299,10 +329,8 @@ public struct TextureListView: View {
                 }
             }
         }
-        .sheet(isPresented: $showOpenDatPicker) {
-            DocumentPicker(contentTypes: [.item, .data]) { url in
-                database.loadDatabase(fromDatURL: url)
-            }
+        .sheet(isPresented: $showDatabasePicker) {
+            PVRDatabasePickerSheet(database: database, isPresented: $showDatabasePicker, onToast: onToast)
         }
         .sheet(isPresented: $showAddTextureSheet) {
             AddTextureSheet(database: database, isPresented: $showAddTextureSheet) { newName in

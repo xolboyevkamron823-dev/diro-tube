@@ -27,6 +27,7 @@ xcrun -sdk iphoneos swiftc \
     IMGToolApp/Views/TextureRowView.swift \
     IMGToolApp/Views/TextureDetailSheet.swift \
     IMGToolApp/Views/AddTextureSheet.swift \
+    IMGToolApp/Views/PVRDatabasePickerSheet.swift \
     IMGToolApp/Views/TextureListView.swift \
     IMGToolApp/Views/ContentView.swift \
     -module-name IMGTool \

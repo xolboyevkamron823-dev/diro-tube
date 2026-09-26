@@ -1,5 +1,10 @@
 import Foundation
 import UIKit
+import SwiftUI
+
+extension Color {
+    public static let appCyan = Color(red: 0.22, green: 0.74, blue: 0.96)
+}
 
 public enum PVRFormat: String, CaseIterable, Identifiable {
     case pvrtc2bpp = "2BPP"

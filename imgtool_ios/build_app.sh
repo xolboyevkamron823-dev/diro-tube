@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Building IMG Tool iOS ==="
+echo "=== Building IMG Tool iOS with PVR Texture Studio ==="
 
 APP_DIR="Payload/IMGTool.app"
 rm -rf Payload IMGTool_iOS.ipa
@@ -14,11 +14,20 @@ xcrun -sdk iphoneos swiftc \
     IMGToolApp/Core/IMGEntry.swift \
     IMGToolApp/Core/IMGArchive.swift \
     IMGToolApp/Core/DocumentPicker.swift \
+    IMGToolApp/Core/ImagePicker.swift \
+    IMGToolApp/Core/PVRTextureEntry.swift \
+    IMGToolApp/Core/PVRTCDecompressor.swift \
+    IMGToolApp/Core/PVRTCCompressor.swift \
+    IMGToolApp/Core/PVRDatabase.swift \
     IMGToolApp/Views/ArchiveHeaderView.swift \
     IMGToolApp/Views/EntryRowView.swift \
     IMGToolApp/Views/DFFViewerSheet.swift \
     IMGToolApp/Views/RebuildSheet.swift \
     IMGToolApp/Views/ModdingGuideSheet.swift \
+    IMGToolApp/Views/TextureRowView.swift \
+    IMGToolApp/Views/TextureDetailSheet.swift \
+    IMGToolApp/Views/AddTextureSheet.swift \
+    IMGToolApp/Views/TextureListView.swift \
     IMGToolApp/Views/ContentView.swift \
     -module-name IMGTool \
     -target arm64-apple-ios14.0 \
@@ -28,6 +37,8 @@ xcrun -sdk iphoneos swiftc \
     -framework WebKit \
     -framework UniformTypeIdentifiers \
     -framework Combine \
+    -framework CoreGraphics \
+    -framework PhotosUI \
     -o "$APP_DIR/IMGTool"
 
 echo "Binary compiled successfully!"

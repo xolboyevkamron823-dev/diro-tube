@@ -16,9 +16,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
     
-    // Handle opening .img file from other apps (Files, AirDrop, Safari)
+    // Handle opening .img or .pvr.dat files from other apps (Files, AirDrop, Safari)
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        NotificationCenter.default.post(name: NSNotification.Name("OpenIMGFileNotification"), object: url)
+        let ext = url.pathExtension.lowercased()
+        if ext == "dat" || ext == "toc" || ext == "sz" || ext == "txt" {
+            NotificationCenter.default.post(name: NSNotification.Name("OpenPVRFileNotification"), object: url)
+        } else {
+            NotificationCenter.default.post(name: NSNotification.Name("OpenIMGFileNotification"), object: url)
+        }
         return true
     }
 }

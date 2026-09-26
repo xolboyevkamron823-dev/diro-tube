@@ -203,7 +203,7 @@ public final class PVRTCCompressor {
     }
     
     public static func crc32(_ string: String) -> UInt32 {
-        guard let data = string.data(using: .latin1) else { return 0 }
+        guard let data = string.data(using: .isoLatin1) else { return 0 }
         return crc32Data(data)
     }
     

@@ -14,8 +14,9 @@ public final class PVRTCCompressor {
         }
     }
     
+    @inline(__always)
     private static func twiddleUV(ySize: UInt32, xSize: UInt32, yPos: UInt32, xPos: UInt32) -> UInt32 {
-        let minDimension = min(ySize, xSize)
+        let minDimension = (ySize < xSize) ? ySize : xSize
         var maxValue = (ySize < xSize) ? xPos : yPos
         var srcBitPos: UInt32 = 1
         var dstBitPos: UInt32 = 1
@@ -34,6 +35,15 @@ public final class PVRTCCompressor {
         return twiddled
     }
     
+    // Opaque Color A (RGB 554 + ModMode 1 bit)
+    private static func colorToRGB554(_ r: UInt8, _ g: UInt8, _ b: UInt8, modMode: UInt16 = 0) -> UInt16 {
+        let r5 = (UInt16(r) >> 3) & 0x1F
+        let g5 = (UInt16(g) >> 3) & 0x1F
+        let b4 = (UInt16(b) >> 4) & 0x0F
+        return (1 << 15) | (r5 << 10) | (g5 << 5) | (b4 << 1) | (modMode & 1)
+    }
+    
+    // Opaque Color B (RGB 555)
     private static func colorToRGB555(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> UInt16 {
         let r5 = (UInt16(r) >> 3) & 0x1F
         let g5 = (UInt16(g) >> 3) & 0x1F
@@ -41,12 +51,22 @@ public final class PVRTCCompressor {
         return (1 << 15) | (r5 << 10) | (g5 << 5) | b5
     }
     
-    private static func colorToRGBA4444(_ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8) -> UInt16 {
-        let a4 = (UInt16(a) >> 4) & 0x0F
+    // Transparent Color A (ARGB 3443 + ModMode 1 bit)
+    private static func colorToRGBA3443(_ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8, modMode: UInt16 = 0) -> UInt16 {
+        let a3 = (UInt16(a) >> 5) & 0x07
+        let r4 = (UInt16(r) >> 4) & 0x0F
+        let g4 = (UInt16(g) >> 4) & 0x0F
+        let b3 = (UInt16(b) >> 5) & 0x07
+        return (a3 << 12) | (r4 << 8) | (g4 << 4) | (b3 << 1) | (modMode & 1)
+    }
+    
+    // Transparent Color B (ARGB 3444)
+    private static func colorToRGBA3444(_ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8) -> UInt16 {
+        let a3 = (UInt16(a) >> 5) & 0x07
         let r4 = (UInt16(r) >> 4) & 0x0F
         let g4 = (UInt16(g) >> 4) & 0x0F
         let b4 = (UInt16(b) >> 4) & 0x0F
-        return (a4 << 12) | (r4 << 8) | (g4 << 4) | b4
+        return (a3 << 12) | (r4 << 8) | (g4 << 4) | b4
     }
     
     public static func resizeImage(_ image: UIImage, targetWidth: Int, targetHeight: Int) -> [UInt8]? {
@@ -135,13 +155,17 @@ public final class PVRTCCompressor {
                     
                     let colA16: UInt16
                     let colB16: UInt16
-                    if colA.a < 250 || colB.a < 250 {
-                        colA16 = colorToRGBA4444(colA.r, colA.g, colA.b, colA.a)
-                        colB16 = colorToRGBA4444(colB.r, colB.g, colB.b, colB.a)
+                    let hasAlpha = (colA.a < 250 || colB.a < 250)
+                    
+                    if hasAlpha {
+                        colA16 = colorToRGBA3443(colA.r, colA.g, colA.b, colA.a, modMode: 0)
+                        colB16 = colorToRGBA3444(colB.r, colB.g, colB.b, colB.a)
                     } else {
-                        colA16 = colorToRGB555(colA.r, colA.g, colA.b)
+                        colA16 = colorToRGB554(colA.r, colA.g, colA.b, modMode: 0)
                         colB16 = colorToRGB555(colB.r, colB.g, colB.b)
                     }
+                    
+                    let highWord = (UInt32(colB16) << 16) | UInt32(colA16)
                     
                     var modWord: UInt32 = 0
                     
@@ -184,13 +208,15 @@ public final class PVRTCCompressor {
                             }
                             
                             let pixelIndex = dy * blockXSize + dx
-                            let shift = pixelIndex * (is2BPP ? 1 : 2)
-                            let modVal = is2BPP ? (bestIdx >= 2 ? 1 : 0) : bestIdx
-                            modWord |= (modVal << shift)
+                            if is2BPP {
+                                let modVal: UInt32 = (bestIdx >= 2) ? 1 : 0
+                                modWord |= (modVal << pixelIndex)
+                            } else {
+                                modWord |= (bestIdx << (pixelIndex * 2))
+                            }
                         }
                     }
                     
-                    let highWord = (UInt32(colB16) << 16) | (UInt32(colA16) << 1) | 0
                     let twiddledIndex = Int(twiddleUV(ySize: UInt32(numBy), xSize: UInt32(numBx), yPos: UInt32(by), xPos: UInt32(bx)))
                     
                     u32Ptr[twiddledIndex * 2] = modWord
@@ -225,7 +251,7 @@ public final class PVRTCCompressor {
         let targetW = nearestPOT(origW)
         let targetH = nearestPOT(origH)
         
-        // 1. Build mipmap pyramid from smallest to largest
+        // 1. Build mipmap pyramid from largest to smallest
         var mipLevels: [(w: Int, h: Int, data: Data)] = []
         
         var curW = targetW
@@ -246,14 +272,14 @@ public final class PVRTCCompressor {
             mipLevels.append((sz.w, sz.h, encoded))
         }
         
-        // War Drum stores mipmaps from smallest to largest
+        // War Drum stores mipmaps from largest (main mip) to smallest!
         var payload = Data()
-        for level in mipLevels.reversed() {
+        for level in mipLevels {
             payload.append(level.data)
         }
         
-        // Add 16-byte War Drum Header
-        // val0 = (0x8c020000 if 4bpp else 0x8c010000) | (crc32(name) & 0xffff)
+        // 16-byte War Drum Header
+        // val0: high 16 bits = 0x8C02 (4BPP) or 0x8C01 (2BPP), low 16 bits = crc32(texName) & 0xFFFF
         let baseVal: UInt32 = is4BPP ? 0x8C020000 : 0x8C010000
         let nameCrc = crc32(texName) & 0xFFFF
         let val0 = baseVal | nameCrc

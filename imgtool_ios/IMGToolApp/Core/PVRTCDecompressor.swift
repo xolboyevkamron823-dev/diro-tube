@@ -30,7 +30,7 @@ public final class PVRTCDecompressor {
     }
     
     private static func unpackColor(packed: UInt32, colors: inout [[Int]]) {
-        var rawBits: [UInt16] = [
+        let rawBits: [UInt16] = [
             UInt16(packed & 0xFFFE),
             UInt16(packed >> 16)
         ]

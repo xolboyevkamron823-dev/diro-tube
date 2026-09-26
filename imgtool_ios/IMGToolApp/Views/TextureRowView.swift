@@ -116,25 +116,36 @@ public struct TextureRowView: View {
     }
 }
 
-// Background checkerboard pattern to visualize transparency
+// Background checkerboard pattern to visualize transparency (iOS 14+ compatible)
 public struct CheckerboardBackground: View {
     let size: CGFloat
     
+    public init(size: CGFloat = 8) {
+        self.size = size
+    }
+    
     public var body: some View {
         GeometryReader { geometry in
-            let cols = Int(geometry.size.width / size) + 1
-            let rows = Int(geometry.size.height / size) + 1
-            
-            Canvas { context, sz in
+            Path { path in
+                let cols = Int(geometry.size.width / size) + 1
+                let rows = Int(geometry.size.height / size) + 1
+                
                 for r in 0..<rows {
                     for c in 0..<cols {
-                        let isEven = (r + c) % 2 == 0
-                        let rect = CGRect(x: CGFloat(c) * size, y: CGFloat(r) * size, width: size, height: size)
-                        let col = isEven ? Color(white: 0.18) : Color(white: 0.12)
-                        context.fill(Path(rect), with: .color(col))
+                        if (r + c) % 2 == 0 {
+                            let rect = CGRect(
+                                x: CGFloat(c) * size,
+                                y: CGFloat(r) * size,
+                                width: size,
+                                height: size
+                            )
+                            path.addRect(rect)
+                        }
                     }
                 }
             }
+            .fill(Color(white: 0.18))
+            .background(Color(white: 0.12))
         }
     }
 }

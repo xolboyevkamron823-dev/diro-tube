@@ -77,7 +77,7 @@ public struct TextureRowView: View {
                         
                         Text(entry.format.rawValue)
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(entry.format == .pvrtc4bpp ? .cyan : .orange)
+                            .foregroundColor(entry.format == .pvrtc4bpp ? .appCyan : .orange)
                         
                         Text("•")
                             .foregroundColor(.gray.opacity(0.6))

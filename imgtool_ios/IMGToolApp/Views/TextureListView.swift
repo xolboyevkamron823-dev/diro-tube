@@ -159,7 +159,7 @@ public struct TextureListView: View {
                                         .font(.system(size: 12, weight: .bold))
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 6)
-                                        .background(selectedCategory == cat ? Color.cyan : Color(red: 0.12, green: 0.14, blue: 0.18))
+                                        .background(selectedCategory == cat ? Color.appCyan : Color(red: 0.12, green: 0.14, blue: 0.18))
                                         .foregroundColor(selectedCategory == cat ? .black : .gray)
                                         .cornerRadius(20)
                                 }
@@ -200,7 +200,7 @@ public struct TextureListView: View {
                     VStack(spacing: 16) {
                         Spacer()
                         ProgressView(value: database.loadingProgress)
-                            .progressViewStyle(LinearProgressViewStyle(tint: .cyan))
+                            .progressViewStyle(LinearProgressViewStyle(tint: .appCyan))
                             .padding(.horizontal, 40)
                         
                         Text(database.loadingStatus)

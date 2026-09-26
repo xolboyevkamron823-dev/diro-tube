@@ -4,36 +4,55 @@ import UniformTypeIdentifiers
 
 public struct DocumentPicker: UIViewControllerRepresentable {
     public let contentTypes: [UTType]
-    public let onPick: (URL) -> Void
+    public let allowsMultipleSelection: Bool
+    public let asCopy: Bool
+    public let onPickMultiple: (([URL]) -> Void)?
+    public let onPickSingle: ((URL) -> Void)?
     
-    public init(contentTypes: [UTType], onPick: @escaping (URL) -> Void) {
+    public init(contentTypes: [UTType], allowsMultipleSelection: Bool = false, asCopy: Bool = false, onPick: @escaping (URL) -> Void) {
         self.contentTypes = contentTypes
-        self.onPick = onPick
+        self.allowsMultipleSelection = allowsMultipleSelection
+        self.asCopy = asCopy
+        self.onPickSingle = onPick
+        self.onPickMultiple = nil
+    }
+    
+    public init(contentTypes: [UTType], allowsMultipleSelection: Bool = true, asCopy: Bool = false, onPickMultiple: @escaping ([URL]) -> Void) {
+        self.contentTypes = contentTypes
+        self.allowsMultipleSelection = allowsMultipleSelection
+        self.asCopy = asCopy
+        self.onPickSingle = nil
+        self.onPickMultiple = onPickMultiple
     }
     
     public func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: false)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: asCopy)
         picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = allowsMultipleSelection
         return picker
     }
     
     public func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
     
     public func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick)
+        Coordinator(self)
     }
     
     public class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
+        let parent: DocumentPicker
         
-        init(onPick: @escaping (URL) -> Void) {
-            self.onPick = onPick
+        init(_ parent: DocumentPicker) {
+            self.parent = parent
         }
         
         public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            onPick(url)
+            guard !urls.isEmpty else { return }
+            
+            if let multipleCallback = parent.onPickMultiple {
+                multipleCallback(urls)
+            } else if let singleCallback = parent.onPickSingle, let first = urls.first {
+                singleCallback(first)
+            }
         }
     }
 }

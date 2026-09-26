@@ -7,6 +7,7 @@ public enum PVRError: LocalizedError {
     case readFailed
     case writeFailed
     case invalidTOC
+    case tocMissing
     case invalidHeader
     case compressionFailed
     case decompressionFailed
@@ -16,11 +17,13 @@ public enum PVRError: LocalizedError {
         case .fileNotFound:
             return "PVR fayli topilmadi."
         case .readFailed:
-            return "PVR bazasini o'qishda xatolik yuz berdi."
+            return "PVR faylini o'qishda xatolik yuz berdi."
         case .writeFailed:
             return "PVR bazasini saqlashda xatolik yuz berdi."
         case .invalidTOC:
-            return "TOC indeks fayli formati noto'g'ri."
+            return "TOC indeks fayli formati noto'g'ri yoki fayl buzilgan."
+        case .tocMissing:
+            return "TOC indeks fayli tanlanmadi! gta3.pvr.dat bilan birga gta3.pvr.toc faylini ham tanlang."
         case .invalidHeader:
             return "War Drum PVR sarlavhasi noto'g'ri."
         case .compressionFailed:
@@ -47,7 +50,7 @@ public class PVRDatabase: ObservableObject {
     
     @Published public var txtHeaderLine: String = "cat=0 name=Default onfoot=5 slow=5 fast=5 defaultformat=2 defaultstream=0"
     
-    private var isSecurityScoped: Bool = false
+    private var accessedURLs: [URL] = []
     
     public init() {}
     
@@ -63,11 +66,21 @@ public class PVRDatabase: ObservableObject {
         entries.filter { $0.isModified || $0.isNew }.count
     }
     
-    public func closeDatabase() {
-        if isSecurityScoped, let url = datURL {
-            url.stopAccessingSecurityScopedResource()
-            isSecurityScoped = false
+    private func startAccess(_ url: URL?) {
+        guard let u = url else { return }
+        if u.startAccessingSecurityScopedResource() {
+            if !accessedURLs.contains(u) {
+                accessedURLs.append(u)
+            }
         }
+    }
+    
+    public func closeDatabase() {
+        for u in accessedURLs {
+            u.stopAccessingSecurityScopedResource()
+        }
+        accessedURLs.removeAll()
+        
         entries = []
         datURL = nil
         tocURL = nil
@@ -116,20 +129,120 @@ public class PVRDatabase: ObservableObject {
         return (tocURL, txtURL, szURL)
     }
     
-    // MARK: - Load Database
-    public func loadDatabase(fromDatURL datURL: URL, tocURL: URL? = nil, txtURL: URL? = nil, szURL: URL? = nil) {
+    // MARK: - Load From URLs (Single or Multiple)
+    public func loadFromURLs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        
+        if urls.count == 1 && urls[0].hasDirectoryPath {
+            loadFromFolder(folderURL: urls[0])
+            return
+        }
+        
+        var foundDat: URL? = nil
+        var foundToc: URL? = nil
+        var foundTxt: URL? = nil
+        var foundSz: URL? = nil
+        
+        for u in urls {
+            let name = u.lastPathComponent.lowercased()
+            if name.hasSuffix(".pvr.dat") || (name.hasSuffix(".dat") && !name.contains(".tmb")) {
+                foundDat = u
+            } else if name.hasSuffix(".pvr.toc") || name.hasSuffix(".toc") {
+                foundToc = u
+            } else if name.hasSuffix(".txt") {
+                foundTxt = u
+            } else if name.hasSuffix(".pvr.sz") || name.hasSuffix(".sz") {
+                foundSz = u
+            }
+        }
+        
+        if let d = foundDat {
+            loadDatabase(fromDatURL: d, tocURL: foundToc, txtURL: foundTxt, szURL: foundSz)
+        } else if let t = foundToc {
+            let comp = Self.findCompanions(for: t)
+            if let d = comp.toc { // check if dat exists
+                loadDatabase(fromDatURL: d, tocURL: t, txtURL: foundTxt, szURL: foundSz)
+            } else {
+                self.errorMessage = "PVR.DAT fayli tanlanmadi! Iltimos, gta3.pvr.dat faylini ham tanlang."
+            }
+        } else {
+            self.errorMessage = "Tanlangan fayllar orasida .pvr.dat yoki .pvr.toc fayllari topilmadi."
+        }
+    }
+    
+    // MARK: - Load From Folder
+    public func loadFromFolder(folderURL: URL) {
         isLoading = true
         loadingProgress = 0.1
-        loadingStatus = "Tekstura fayllari qidirilmoqda..."
+        loadingStatus = "Papka tahlil qilinmoqda..."
         errorMessage = nil
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            var didAccess = false
-            if datURL.startAccessingSecurityScopedResource() {
-                didAccess = true
+            var didAccessFolder = false
+            if folderURL.startAccessingSecurityScopedResource() {
+                didAccessFolder = true
+                self.accessedURLs.append(folderURL)
             }
+            
+            let fileManager = FileManager.default
+            var targetDat: URL? = nil
+            var targetToc: URL? = nil
+            var targetTxt: URL? = nil
+            var targetSz: URL? = nil
+            
+            let searchDirs = [
+                folderURL,
+                folderURL.appendingPathComponent("texdb/gta3"),
+                folderURL.appendingPathComponent("gta3"),
+                folderURL.appendingPathComponent("texdb")
+            ]
+            
+            for dir in searchDirs {
+                if let items = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                    for item in items {
+                        let name = item.lastPathComponent.lowercased()
+                        if name.hasSuffix(".pvr.dat") || (name.hasSuffix(".dat") && !name.contains(".tmb")) {
+                            if targetDat == nil || name.contains("gta3") { targetDat = item }
+                        } else if name.hasSuffix(".pvr.toc") || name.hasSuffix(".toc") {
+                            if targetToc == nil || name.contains("gta3") { targetToc = item }
+                        } else if name.hasSuffix(".txt") {
+                            if targetTxt == nil || name.contains("gta3") { targetTxt = item }
+                        } else if name.hasSuffix(".pvr.sz") || name.hasSuffix(".sz") {
+                            if targetSz == nil || name.contains("gta3") { targetSz = item }
+                        }
+                    }
+                }
+                if targetDat != nil && targetToc != nil { break }
+            }
+            
+            if let d = targetDat, let t = targetToc {
+                self.loadDatabase(fromDatURL: d, tocURL: t, txtURL: targetTxt, szURL: targetSz)
+            } else {
+                if didAccessFolder { folderURL.stopAccessingSecurityScopedResource() }
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.errorMessage = "Tanlangan papkada gta3.pvr.dat yoki gta3.pvr.toc fayli topilmadi."
+                }
+            }
+        }
+    }
+    
+    // MARK: - Load Database
+    public func loadDatabase(fromDatURL datURL: URL, tocURL: URL? = nil, txtURL: URL? = nil, szURL: URL? = nil) {
+        isLoading = true
+        loadingProgress = 0.1
+        loadingStatus = "Tekstura fayllari ochilmoqda..."
+        errorMessage = nil
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            self.startAccess(datURL)
+            self.startAccess(tocURL)
+            self.startAccess(txtURL)
+            self.startAccess(szURL)
             
             do {
                 let companions = Self.findCompanions(for: datURL)
@@ -137,7 +250,15 @@ public class PVRDatabase: ObservableObject {
                 let resolvedTXT = txtURL ?? companions.txt
                 let resolvedSZ = szURL ?? companions.sz
                 
-                guard let finalTOC = resolvedTOC, FileManager.default.fileExists(atPath: finalTOC.path) else {
+                self.startAccess(resolvedTOC)
+                self.startAccess(resolvedTXT)
+                self.startAccess(resolvedSZ)
+                
+                guard let finalTOC = resolvedTOC else {
+                    throw PVRError.tocMissing
+                }
+                
+                guard FileManager.default.fileExists(atPath: finalTOC.path) else {
                     throw PVRError.invalidTOC
                 }
                 
@@ -275,20 +396,16 @@ public class PVRDatabase: ObservableObject {
                     self.databaseName = dbBase.isEmpty ? "gta3" : dbBase
                     self.txtHeaderLine = localHeader
                     self.entries = parsedEntries
-                    self.isSecurityScoped = didAccess
                     self.isLoaded = true
                     self.isLoading = false
                     self.loadingProgress = 1.0
                     self.loadingStatus = "Tayyor: \(parsedEntries.count) ta tekstura yuklandi."
                 }
             } catch {
-                if didAccess {
-                    datURL.stopAccessingSecurityScopedResource()
-                }
                 DispatchQueue.main.async {
                     self.errorMessage = error.localizedDescription
                     self.isLoading = false
-                    self.loadingStatus = "Xatolik yuz berdi"
+                    self.loadingStatus = "Xatolik: \(error.localizedDescription)"
                 }
             }
         }
@@ -317,7 +434,6 @@ public class PVRDatabase: ObservableObject {
                     defer { try? handle.close() }
                     try handle.seek(toOffset: UInt64(entry.offset))
                     
-                    // If entry size is 0, read first 16 bytes to get chunk size
                     var readLen = Int(entry.size)
                     if readLen < 16 {
                         let headerData = handle.readData(ofLength: 16)
@@ -367,7 +483,6 @@ public class PVRDatabase: ObservableObject {
             throw PVRError.compressionFailed
         }
         
-        // Decode preview immediately for UI
         let mainMip = max(32, (encoded.width * encoded.height) / (is4BPP ? 2 : 4))
         let payload = encoded.chunk.subdata(in: 16..<encoded.chunk.count)
         let preview = PVRTCDecompressor.decompress(
@@ -378,7 +493,6 @@ public class PVRDatabase: ObservableObject {
         )
         
         if let existing = entries.first(where: { $0.name.lowercased() == cleanName }) {
-            // Update existing texture (Replace)
             existing.width = encoded.width
             existing.height = encoded.height
             existing.format = is4BPP ? .pvrtc4bpp : .pvrtc2bpp
@@ -388,7 +502,6 @@ public class PVRDatabase: ObservableObject {
             existing.cachedPreview = preview
             existing.isModified = true
         } else {
-            // New entry
             let newIndex = entries.count + 1
             let entry = PVRTextureEntry(
                 index: newIndex,
@@ -570,7 +683,6 @@ public class PVRDatabase: ObservableObject {
                     try? FileManager.default.moveItem(at: tempTxt, to: targetTxtURL)
                 }
                 
-                // Update in-memory entries state
                 DispatchQueue.main.async {
                     for i in 0..<currentEntries.count {
                         currentEntries[i].offset = newToc[i + 1]
